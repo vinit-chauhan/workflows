@@ -1,4 +1,4 @@
-from .agent import agent
+from .agent import tools, agent
 
 
-__all__ = ["agent"]
+__all__ = ["tools", "agent"]
