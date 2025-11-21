@@ -21,3 +21,24 @@ service_info_prompt = PromptTemplate(
     input_variables=["integration_name",
                      "collection_via", "setup_steps", "manifest"],
 )
+
+
+link_verification_prompt = PromptTemplate(
+    input_variables=["link"],
+    template="""
+    You are a link verifier.
+    You will be given a link and you need to verify if it is a valid link and has content.
+    In the content from the page is missing, consider the page as invalid.
+
+    If it is a valid link with content, you respond with "valid".
+    If it is not a valid link, you respond with "invalid".
+
+    Only respond with "valid" or "invalid"
+    If the link is invalid, provide a reason for the invalidity.
+    The reason should be a short description of the issue in 10 words or less.
+
+    Link: {link}
+    Page Content: {page_content}
+    Answer:
+    """
+)
