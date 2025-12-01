@@ -6,6 +6,7 @@ for the following product: {integration_name}
 collection via: {collection_via}
 setup steps doc template:
 
+```
 # Service Info
 
 ## Common use cases
@@ -72,9 +73,11 @@ This may include steps on the vendor system to trigger data flow, and steps on h
 # Documentation sites
 
 /_ List of URLs that contain info on the service (reference pages, set up help, API docs, etc. _/
+```
 
-update the setup steps document template with the following information \
-and return only the updated template without any other text:
+Update the setup steps document template with the following information \
+and return only the updated template without any other text. Remove all the text
+between '/_' and '_/' from the template:
 
 ```
 {setup_steps}

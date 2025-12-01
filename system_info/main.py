@@ -5,13 +5,14 @@ import re
 import sys
 import json
 import yaml
+import asyncio
+import aiohttp
 
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableLambda
 from langchain_google_genai import ChatGoogleGenerativeAI
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
-from requests_html import HTMLSession
 
 from templates import (
     setup_steps_prompt,
@@ -44,67 +45,19 @@ def get_manifest(integration_name: str) -> dict:
         return manifest
 
 
-def generate_service_info(integration_name: str, manifest: dict) -> None:
-    # Chain responsible for generating the setup steps
-    setup_chain = setup_steps_prompt | llm | StrOutputParser()
-    link_verification_chain = link_verification_prompt | llm | StrOutputParser()
+async def verify_link(link: str, session: aiohttp.ClientSession, chain) -> tuple[str, bool]:
+    print(f"Verifying link: {link}")
+    try:
+        async with session.get(link, timeout=10, allow_redirects=True) as response:
+            if response.status != 200:
+                print(f"Failed to get page content for {link} (Status: {response.status})")
+                return link, False
 
-    inputs = set()
-    for policy_template in manifest["policy_templates"]:
-        for inp in policy_template["inputs"]:
-            inputs.add(inp["type"])
-
-    # combined chain responsible for generating the service_info.md file
-    chain = (
-        {
-            "integration_name": lambda x: x["integration_name"],
-            "collection_via": lambda x: x["collection_via"],
-            "setup_steps": setup_chain,
-            "manifest": lambda x: x["manifest"]
-        }
-        | service_info_prompt
-        | llm
-        | StrOutputParser()
-        | RunnableLambda(validate_and_clean_urls)
-    )
-
-    print("Invoking chains...")
-    result = chain.invoke({
-        "integration_name": integration_name,
-        "collection_via": inputs,
-        "manifest": json.dumps(manifest)
-    })
-
-    print("Writing service info to file...")
-    with open(
-            f"service_info-{integration_name}.md", "w",
-            encoding="utf-8") as f:
-        f.write(result)
-
-
-def validate_and_clean_urls(text: str) -> str:
-    print("Verifying links...")
-    link_verification_chain = link_verification_prompt | llm | StrOutputParser()
-    
-    # Find all markdown links: [text](url)
-    urls = re.findall(r'https?://[^\s\)\]>]+', text)
-    invalid_urls = set()
-    
-    for link in urls:
-        # Clean the link of any trailing punctuation that might have been captured
-        print(f"Verifying link: {link}")
-        try:
-            session = HTMLSession()
-            response = session.get(link, timeout=10, allow_redirects=True)
-            if response.status_code != 200:
-                print(f"Failed to get page content for {link} (Status: {response.status_code})")
-                invalid_urls.add(link)
-                continue
-
-            soup = BeautifulSoup(response.html.text, 'html.parser')
+            text = await response.text()
+            soup = BeautifulSoup(text, 'html.parser')
             page_content = soup.get_text()
 
-            verification = link_verification_chain.invoke({
+            verification = await chain.ainvoke({
                 "link": link,
                 "page_content": page_content,
             })
@@ -112,10 +65,32 @@ def validate_and_clean_urls(text: str) -> str:
             print(f"Verification: {verification}")
 
             if "invalid" in verification.lower():
+                return link, False
+            
+            return link, True
+    except Exception as e:
+        print(f"Error verifying {link}: {e}")
+        return link, False
+
+
+async def validate_and_clean_urls(text: str) -> str:
+    print("Verifying links...")
+    link_verification_chain = link_verification_prompt | llm | StrOutputParser()
+    
+    # Find all markdown links: [text](url)
+    urls = re.findall(r'https?://[^\s\)\]>]+', text)
+    if not urls:
+        return text
+
+    invalid_urls = set()
+    
+    async with aiohttp.ClientSession() as session:
+        tasks = [verify_link(link, session, link_verification_chain) for link in urls]
+        results = await asyncio.gather(*tasks)
+        
+        for link, is_valid in results:
+            if not is_valid:
                 invalid_urls.add(link)
-        except Exception as e:
-             print(f"Error verifying {link}: {e}")
-             invalid_urls.add(link)
 
     if not invalid_urls:
         return text
@@ -140,7 +115,46 @@ def validate_and_clean_urls(text: str) -> str:
     return cleaned_text
 
 
-def main():
+async def generate_service_info(integration_name: str, manifest: dict) -> None:
+    # Chain responsible for generating the setup steps
+    setup_chain = setup_steps_prompt | llm | StrOutputParser()
+
+    inputs = set()
+    for policy_template in manifest["policy_templates"]:
+        for inp in policy_template["inputs"]:
+            inputs.add(inp["type"])
+
+    # combined chain responsible for generating the service_info.md file
+    chain = (
+        {
+            "integration_name": lambda x: x["integration_name"],
+            "collection_via": lambda x: x["collection_via"],
+            "setup_steps": setup_chain,
+            "manifest": lambda x: x["manifest"]
+        }
+        | service_info_prompt
+        | llm
+        | StrOutputParser()
+        | RunnableLambda(validate_and_clean_urls)
+    )
+
+    print("Invoking chains...")
+    result: str = await chain.ainvoke({
+        "integration_name": integration_name,
+        "collection_via": inputs,
+        "manifest": json.dumps(manifest)
+    })
+
+    print("Writing service info to file...")
+    with open(
+            f"service_info-{integration_name}.md", "w",
+            encoding="utf-8") as f:
+        result = result.strip('```')
+        if result != "":
+            f.write(result)
+
+
+async def main():
     args = sys.argv[1:]
     if len(args) != 1:
         print("Usage: python main.py <integration_name>")
@@ -151,8 +165,8 @@ def main():
         print(f"Manifest for {args[0].lower()} not found")
         sys.exit(1)
 
-    generate_service_info(args[0].lower(), manifest)
+    await generate_service_info(args[0].lower(), manifest)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
