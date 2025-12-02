@@ -26,12 +26,7 @@ tools: List[BaseTool] = [
 ]
 
 # Bind tools to the LLM
-llm_with_tools = LLM.bind_tools(
-    tools,
-    tool_config={
-        "temperature": 0.0,
-    }
-)
+llm_with_tools = LLM.bind_tools(tools)
 
 
 def call_agent(state: GenerationState) -> dict:

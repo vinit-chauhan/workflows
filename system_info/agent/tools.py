@@ -5,11 +5,15 @@ import os
 import requests
 import yaml
 
+from typing import Annotated
 from langchain.tools import tool
+from langchain_core.output_parsers import StrOutputParser
 from langchain_community.tools import DuckDuckGoSearchRun
+from langgraph.prebuilt import InjectedState
 
 from .logger import logger
 from .constants import LLM, DEBUG
+from .state import GenerationState
 
 
 integration_path = os.environ.get("INTEGRATION_ROOT_PATH")
@@ -40,7 +44,7 @@ def list_integrations() -> str:
 
 
 @tool
-def read_manifest(integration_name: str) -> str:
+def read_manifest(state: Annotated[GenerationState, InjectedState]) -> str:
     """
     Read the manifest.yml file for the given integration name.
 
@@ -53,10 +57,10 @@ def read_manifest(integration_name: str) -> str:
     """
 
     logger.info(
-        "[TOOL] [read_manifest] Reading manifest for the integration: %s", integration_name)
+        "[TOOL] [read_manifest] Reading manifest for the integration: %s", state["integration_name"])
     try:
         with open(
-                f"{integration_path}/packages/{integration_name}/manifest.yml",
+                f"{integration_path}/packages/{state['integration_name']}/manifest.yml",
                 "r",
                 encoding="utf-8",
         ) as f:
@@ -64,38 +68,38 @@ def read_manifest(integration_name: str) -> str:
             if manifest is None:
                 return ""
 
-            return manifest
+            return yaml.dump(manifest, default_flow_style=False)
     except Exception as e:
         logger.error(
-            "[TOOL] [read_manifest] Error reading manifest for the integration: %s: %s", integration_name, e)
+            "[TOOL] [read_manifest] Error reading manifest for the integration: %s: %s", state["integration_name"], e)
         return ""
 
 
 @tool
-def list_data_streams(integration_name: str) -> str:
+def list_data_streams(state: Annotated[GenerationState, InjectedState]) -> str:
     """
     List all the data streams for the given integration name.
 
     Return the list of data streams in a newline separated string.
     """
     logger.info("[TOOL] [list_data_streams] Listing data streams for the integration: %s",
-                integration_name)
+                state["integration_name"])
 
     try:
         data_streams = os.listdir(
-            f"{integration_path}/packages/{integration_name}/data_stream")
+            f"{integration_path}/packages/{state['integration_name']}/data_stream")
         logger.info("[TOOL] [list_data_streams] Found %s data streams",
                     len(data_streams))
         return "\n".join(data_streams) if data_streams else "No data streams found"
     except Exception as e:
         logger.error(
             "[TOOL] [list_data_streams] Error listing data streams for the integration %s: %s",
-            integration_name, e)
-        return f"Error: Could not list data streams for {integration_name}"
+            state["integration_name"], e)
+        return f"Error: Could not list data streams for {state['integration_name']}"
 
 
 @tool
-def write_service_info(service_info: str) -> str:
+def write_service_info(state: Annotated[GenerationState, InjectedState]) -> str:
     """
     Write the service info to the service_info.md file.
     """
@@ -103,7 +107,7 @@ def write_service_info(service_info: str) -> str:
         "[TOOL] [write_service_info] Writing service info to service_info.md")
     try:
         with open("service_info.md", "w", encoding="utf-8") as f:
-            f.write(service_info)
+            f.write(state["service_info"])
         return "Service info written to service_info.md"
     except Exception as e:
         logger.error(
@@ -156,13 +160,10 @@ def verify_url(url: str) -> str:
     Answer: False
     Reason: URL is valid but the there's no good quality content. The page shows "content not found".
     """
+    response.close()
 
-    response = LLM.invoke(
-        prompt, config={
-            "verbose": DEBUG,
-        }
-    )
+    chain = prompt | LLM | StrOutputParser()
 
-    logger.debug("[TOOL] [verify_url] URL Evaluation Result: %s",
-                 response.content)
-    return response.content
+    result = chain.invoke(input={"url": url}, config={"verbose": DEBUG})
+    logger.debug("[TOOL] [verify_url] URL Evaluation Result: %s", result)
+    return result
