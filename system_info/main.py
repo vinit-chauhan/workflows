@@ -23,7 +23,7 @@ from templates import (
 load_dotenv()
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-pro",
+    model="gemini-2.5-flash",
     temperature=0,
 )
 
@@ -33,16 +33,22 @@ def get_manifest(integration_name: str) -> dict:
     if integration_path is None:
         raise ValueError("INTEGRATION_ROOT_PATH is not set")
 
-    with open(
+
+    try:
+        with open(
             f"{integration_path}/packages/{integration_name}/manifest.yml",
             "r",
             encoding="utf-8",
-    ) as f:
-        manifest = yaml.safe_load(f)
-        if manifest is None:
-            return ""
+        ) as f:
+            manifest = yaml.safe_load(f)
+            if manifest is None:
+                return ""
 
-        return manifest
+            return manifest
+    except FileNotFoundError:
+        print(f"Manifest for {integration_name} not found")
+        return None
+
 
 
 async def verify_link(link: str, session: aiohttp.ClientSession, chain) -> tuple[str, bool]:
@@ -50,7 +56,8 @@ async def verify_link(link: str, session: aiohttp.ClientSession, chain) -> tuple
     try:
         async with session.get(link, timeout=10, allow_redirects=True) as response:
             if response.status != 200:
-                print(f"Failed to get page content for {link} (Status: {response.status})")
+                print(
+                    f"Failed to get page content for {link} (Status: {response.status})")
                 return link, False
 
             text = await response.text()
@@ -66,7 +73,7 @@ async def verify_link(link: str, session: aiohttp.ClientSession, chain) -> tuple
 
             if "invalid" in verification.lower():
                 return link, False
-            
+
             return link, True
     except Exception as e:
         print(f"Error verifying {link}: {e}")
@@ -76,18 +83,19 @@ async def verify_link(link: str, session: aiohttp.ClientSession, chain) -> tuple
 async def validate_and_clean_urls(text: str) -> str:
     print("Verifying links...")
     link_verification_chain = link_verification_prompt | llm | StrOutputParser()
-    
+
     # Find all markdown links: [text](url)
     urls = re.findall(r'https?://[^\s\)\]>]+', text)
     if not urls:
         return text
 
     invalid_urls = set()
-    
+
     async with aiohttp.ClientSession() as session:
-        tasks = [verify_link(link, session, link_verification_chain) for link in urls]
+        tasks = [verify_link(link, session, link_verification_chain)
+                 for link in urls]
         results = await asyncio.gather(*tasks)
-        
+
         for link, is_valid in results:
             if not is_valid:
                 invalid_urls.add(link)
@@ -96,22 +104,24 @@ async def validate_and_clean_urls(text: str) -> str:
         return text
 
     print(f"Removing invalid links: {', '.join(invalid_urls)}")
-    
+
     cleaned_text = text
     for url in invalid_urls:
         escaped_url = re.escape(url)
-        
+
         # Strategy 1: Standalone links (on their own line or in a list item)
-        # Matches: Start of line, optional whitespace, optional bullet, optional whitespace, [text](url), optional whitespace, end of line
+        # Matches: Start of line, optional whitespace, optional bullet, optional
+        # whitespace, [text](url), optional whitespace, end of line
         # We also match the newline to remove the empty line
-        pattern_standalone = r'(?m)^\s*[-*]?\s*\[[^\]]+\]\(' + escaped_url + r'\)\s*\n?'
+        pattern_standalone = r'(?m)^\s*[-*]?\s*\[[^\]]+\]\(' + \
+            escaped_url + r'\)\s*\n?'
         cleaned_text = re.sub(pattern_standalone, '', cleaned_text)
-        
+
         # Strategy 2: Inline links
         # Matches: [text](url) -> replace with text
         pattern_inline = r'\[([^\]]+)\]\(' + escaped_url + r'\)'
         cleaned_text = re.sub(pattern_inline, r'\1', cleaned_text)
-        
+
     return cleaned_text
 
 
@@ -120,7 +130,7 @@ async def generate_service_info(integration_name: str, manifest: dict) -> None:
     setup_chain = setup_steps_prompt | llm | StrOutputParser()
 
     inputs = set()
-    for policy_template in manifest["policy_templates"]:
+    for policy_template in manifest.get("policy_templates", []):
         for inp in policy_template["inputs"]:
             inputs.add(inp["type"])
 
