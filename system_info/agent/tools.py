@@ -2,18 +2,17 @@
 # flake8: noqa: E501
 
 import os
+import re
 import requests
-import yaml
 
-from typing import Annotated
+from bs4 import BeautifulSoup
 from langchain.tools import tool
+from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_core.output_parsers import StrOutputParser
-from langchain_community.tools import DuckDuckGoSearchRun
-from langgraph.prebuilt import InjectedState
+from langchain_core.prompts.prompt import PromptTemplate
 
 from .logger import logger
-from .constants import LLM, DEBUG
-from .state import GenerationState
+from .constants import DEBUG, LLM
 
 
 integration_path = os.environ.get("INTEGRATION_ROOT_PATH")
@@ -21,8 +20,9 @@ if integration_path is None:
     raise ValueError("INTEGRATION_ROOT_PATH is not set")
 
 
-web_search = DuckDuckGoSearchRun(
+web_search = DuckDuckGoSearchResults(
     verbose=DEBUG,
+    output_format="json"
 )
 
 
@@ -40,130 +40,101 @@ def list_integrations() -> str:
     integrations = os.listdir(f"{integration_path}/packages")
     logger.info("[TOOL] [list_integrations] Found %s integrations",
                 len(integrations))
-    return "\n".join(integrations) if integrations else "No integrations found"
+    return "\n".join(integrations) if integrations else ""
 
 
-@tool
-def read_manifest(state: Annotated[GenerationState, InjectedState]) -> str:
+link_verification_prompt = PromptTemplate(
+    input_variables=["link"],
+    template="""
+    You are a link verifier.
+    You will be given a link and you need to verify if it is a valid link and has content.
+    In the content from the page is missing, consider the page as invalid.
+
+    If it is a valid link with content, you respond with "valid".
+    If it is not a valid link, you respond with "invalid".
+
+    Only respond with "valid" or "invalid"
+    If the link is invalid, provide a reason for the invalidity.
+    The reason should be a short description of the issue in 10 words or less.
+
+    Link: {link}
+    Page Content: {page_content}
+    Answer:
     """
-    Read the manifest.yml file for the given integration name.
+)
 
-    Manifest file has the following data:
-    - name: Name of the integration
-    - input_types: List of input types (collection methods) supported by the integration
-    - additional_info: Additional information about the integration
 
-    Return the manifest data in a yaml format.
-    """
-
-    logger.info(
-        "[TOOL] [read_manifest] Reading manifest for the integration: %s", state["integration_name"])
+def verify_link(
+    link: str
+) -> tuple[str, bool]:
+    print(f"Verifying link: {link}")
     try:
-        with open(
-                f"{integration_path}/packages/{state['integration_name']}/manifest.yml",
-                "r",
-                encoding="utf-8",
-        ) as f:
-            manifest = yaml.safe_load(f)
-            if manifest is None:
-                return ""
+        response = requests.get(link, timeout=10, allow_redirects=True)
+        if response.status != 200:
+            print(
+                f"Failed to get page content for {link} (Status: {response.status})")
+            return link, False
 
-            return yaml.dump(manifest, default_flow_style=False)
+        text = response.text()
+        soup = BeautifulSoup(text, 'html.parser')
+        page_content = soup.get_text()
+
+        chain = link_verification_prompt | LLM | StrOutputParser()
+        verification = chain.invoke({
+            "link": link,
+            "page_content": page_content,
+        })
+
+        print(f"Verification: {verification}")
+
+        if "invalid" in verification.lower():
+            return link, False
+
+        return link, True
     except Exception as e:
-        logger.error(
-            "[TOOL] [read_manifest] Error reading manifest for the integration: %s: %s", state["integration_name"], e)
-        return ""
+        print(f"Error verifying {link}: {e}")
+        return link, False
 
 
-@tool
-def list_data_streams(state: Annotated[GenerationState, InjectedState]) -> str:
+def validate_urls(text: str) -> set[str]:
+    print("Verifying links...")
+
+    # Find all markdown links: [text](url)
+    urls = re.findall(r'https?://[^\s\)\]>]+', text)
+    if not urls:
+        return set()
+
+    invalid_urls = set()
+
+    for link in urls:
+        is_valid = verify_link(link)
+        if not is_valid:
+            invalid_urls.add(link)
+
+    return invalid_urls
+
+
+def clean_result_text(text: str, invalid_urls: set[str]) -> str:
     """
-    List all the data streams for the given integration name.
-
-    Return the list of data streams in a newline separated string.
+    Clean the text by removing the invalid links.
     """
-    logger.info("[TOOL] [list_data_streams] Listing data streams for the integration: %s",
-                state["integration_name"])
+    print(f"Removing invalid links: {', '.join(invalid_urls)}")
 
-    try:
-        data_streams = os.listdir(
-            f"{integration_path}/packages/{state['integration_name']}/data_stream")
-        logger.info("[TOOL] [list_data_streams] Found %s data streams",
-                    len(data_streams))
-        return "\n".join(data_streams) if data_streams else "No data streams found"
-    except Exception as e:
-        logger.error(
-            "[TOOL] [list_data_streams] Error listing data streams for the integration %s: %s",
-            state["integration_name"], e)
-        return f"Error: Could not list data streams for {state['integration_name']}"
+    cleaned_text = text
+    for url in invalid_urls:
+        escaped_url = re.escape(url)
 
+        # Strategy 1: Standalone links (on their own line or in a list item)
+        # Matches: Start of line, optional whitespace, optional bullet, optional
+        # whitespace, [text](url), optional whitespace, end of line
+        # We also match the newline to remove the empty line
+        pattern_standalone = r'(?m)^\s*[-*]?\s*\[[^\]]+\]\(' + \
+            escaped_url + r'\)\s*\n?'
+        cleaned_text = re.sub(pattern_standalone, '', cleaned_text)
 
-@tool
-def write_service_info(state: Annotated[GenerationState, InjectedState]) -> str:
-    """
-    Write the service info to the service_info.md file.
-    """
-    logger.info(
-        "[TOOL] [write_service_info] Writing service info to service_info.md")
-    try:
-        with open("service_info.md", "w", encoding="utf-8") as f:
-            f.write(state["service_info"])
-        return "Service info written to service_info.md"
-    except Exception as e:
-        logger.error(
-            "[TOOL] [write_service_info] Error writing service info to service_info.md: %s", e)
-        return "Error writing service info to service_info.md"
+        # Strategy 2: Inline links
+        # Matches: [text](url) -> replace with text
+        pattern_inline = r'\[([^\]]+)\]\(' + escaped_url + r'\)'
+        cleaned_text = re.sub(pattern_inline, r'\1', cleaned_text)
 
-
-@tool
-def verify_url(url: str) -> str:
-    """
-    Verify the URLs are valid and has good quality content.
-
-    Return the boolean value, no other text or explanation.
-    """
-
-    logger.info("[TOOL] [verify_url] Verifying URL: %s", url)
-    response = requests.get(url, timeout=30)
-    if response.status_code != 200:
-        return False
-
-    if response.text is None:
-        return False
-
-    content = response.text
-
-    logger.debug("[TOOL] [verify_url] Fetched content of the URL: %s", url)
-
-    prompt = f"""
-    You are a helpful assistant that verifies the URLs are valid and has good quality content.
-
-    The content of url for product X is good quality if it answers the question the following question: 
-    "How to setup external logging in context of the product X?"
-    
-    The content of the URL is:
-    ```
-    {content}
-    ```
-
-    Is the content of the URL good quality and valid? If yes, return "True". If no, return "False".
-    Return only the boolean value, no other text or explanation.
-
-    Example with Reasoning for your understanding:
-    
-    Example:
-    url: https://www.cisco.com
-    Answer: True
-    Reason: The content of the URL is a good quality and valid.
-
-    url: https://www.cisco.com/c/en/us/td/docs/security/firepower/70/fdm/fptd-fdm-config-guide-700/fptd-fdm-logging.html
-    Answer: False
-    Reason: URL is valid but the there's no good quality content. The page shows "content not found".
-    """
-    response.close()
-
-    chain = prompt | LLM | StrOutputParser()
-
-    result = chain.invoke(input={"url": url}, config={"verbose": DEBUG})
-    logger.debug("[TOOL] [verify_url] URL Evaluation Result: %s", result)
-    return result
+    return cleaned_text

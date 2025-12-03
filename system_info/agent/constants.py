@@ -8,4 +8,10 @@ load_dotenv()
 
 MODEL = os.environ.get("GOOGLE_MODEL", "gemini-2.5-flash")
 DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
-LLM = ChatGoogleGenerativeAI(model=MODEL)
+
+LLM = ChatGoogleGenerativeAI(model=MODEL, temperature=0)
+
+
+INTEGRATION_ROOT_PATH = os.environ.get("INTEGRATION_ROOT_PATH")
+if INTEGRATION_ROOT_PATH is None:
+    raise ValueError("INTEGRATION_ROOT_PATH is not set")

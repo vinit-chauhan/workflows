@@ -1,278 +1,247 @@
-# pylint: disable=C0114,C0116
-from typing import List, Literal
-from langchain.tools import BaseTool
-from langchain_core.messages import SystemMessage, ToolMessage
-from langgraph.graph import StateGraph, END
-from langgraph.prebuilt import ToolNode
+# pylint: disable=C0114,C0116,W0613,W0703
+import os
+import yaml
 
-from .constants import LLM, DEBUG
+from langchain_core.messages import (
+    SystemMessage,
+    AIMessage,
+    HumanMessage,
+)
+
+from .constants import LLM, INTEGRATION_ROOT_PATH
 from .tools import (
-    read_manifest,
-    write_service_info,
     list_integrations,
-    list_data_streams,
+    validate_urls,
+    clean_result_text,
     web_search,
 )
 from .prompts import SYSTEM_PROMPT
 from .state import GenerationState
 from .logger import logger
 
-tools: List[BaseTool] = [
-    read_manifest,
-    write_service_info,
-    list_integrations,
-    list_data_streams,
-    web_search,
-]
+# ============================================================================
+# SEQUENTIAL WORKFLOW NODES
+# ============================================================================
 
-# Bind tools to the LLM
-llm_with_tools = LLM.bind_tools(tools)
-
-
-def call_agent(state: GenerationState) -> dict:
+def list_integrations_node(_: GenerationState) -> dict:
     """
-    Agent node that calls the LLM with tools.
-    Injects state context into the system prompt so the LLM can access it.
+    Step 1: List available integrations (optional validation step)
     """
-    messages = state.get("messages", [])
-    integration_name = state.get("integration_name", "")
-    data_streams = state.get("data_streams", [])
-    verified_urls = state.get("verified_urls", [])
-
-    # Add system prompt with state context if it's the first message
-    if len(messages) == 1 or not any(
-            isinstance(msg, SystemMessage) for msg in messages):
-        # Inject state information into the system prompt
-        context = "\n\n## Current Context\n"
-        context += f"- Integration name provided by user: {integration_name}\n"
-
-        if data_streams:
-            ds_list = ', '.join(data_streams)
-            context += f"- Data streams discovered: {ds_list}\n"
-
-        if verified_urls:
-            context += f"- Verified URLs found: {len(verified_urls)}\n"
-
-        enhanced_prompt = SYSTEM_PROMPT + context
-        messages = [SystemMessage(content=enhanced_prompt)] + messages
-
-    response = llm_with_tools.invoke(messages)
-
-    return {"messages": [response]}
+    logger.info("[STEP 1] Listing integrations")
+    result = list_integrations.invoke({})
+    logger.info("[STEP 1] Found integrations: %d", str(result).count("\n"))
+    return {"messages": [AIMessage(content=f"Available integrations: {result}")]}
 
 
-def process_tool_results(state: GenerationState) -> dict:
+def read_manifest_node(state: GenerationState) -> dict:
     """
-    Post-process tool results and update state fields.
-    This node extracts structured data from tool outputs and stores in state.
+    Step 2: Read the manifest file for the integration
     """
-    messages = state.get("messages", [])
-    updates = {}
+    integration_name = state["integration_name"]
 
-    # Find the most recent tool messages
-    for msg in reversed(messages):
-        if isinstance(msg, ToolMessage):
-            tool_name = msg.name
+    logger.info("[STEP 2] Reading manifest for integration: %s",
+                integration_name)
 
-            # Extract data streams from list_data_streams tool
-            if tool_name == "list_data_streams" and msg.content:
-                if not msg.content.startswith("Error"):
-                    data_streams = [
-                        ds.strip() for ds in msg.content.split('\n')
-                        if ds.strip()
-                    ]
-                    if data_streams:
-                        updates["data_streams"] = data_streams
-                        logger.info(
-                            "[PROCESS] Updated state with %d data streams",
-                            len(data_streams))
+    # Read manifest directly
+    try:
+        with open(
+                f"{INTEGRATION_ROOT_PATH}/packages/{integration_name}/manifest.yml",
+                "r",
+                encoding="utf-8",
+        ) as f:
+            manifest_yaml = f.read()
+            manifest_dict = yaml.safe_load(manifest_yaml)
 
-            # Extract manifest from read_manifest tool
-            elif tool_name == "read_manifest" and msg.content:
+            if manifest_dict:
+                logger.info("[STEP 2] Manifest loaded successfully")
+
+                # Also get data streams
                 try:
-                    import json
-                    manifest = json.loads(msg.content)
-                    if manifest:
-                        updates["manifest"] = manifest
-                        logger.info("[PROCESS] Updated state with manifest")
-                except (json.JSONDecodeError, TypeError, ValueError) as e:
-                    logger.debug("[PROCESS] Failed to parse manifest: %s", e)
+                    data_streams_path = f"{INTEGRATION_ROOT_PATH}/packages/{integration_name}/data_stream"
+                    data_streams = os.listdir(data_streams_path)
+                    data_streams = [ds for ds in data_streams if ds]
+                except Exception as e:
+                    logger.warning(
+                        "[STEP 2] Could not list data streams: %s", e)
+                    data_streams = []
 
-            # Track verified URLs from verify_url tool
-            elif tool_name == "verify_url" and "True" in str(msg.content):
-                verified_urls = state.get("verified_urls", [])
-                # Extract URL from previous messages if possible
-                # For now, just increment count
-                if "verified_urls" not in updates:
-                    updates["verified_urls"] = verified_urls
-                logger.info("[PROCESS] URL verified successfully")
+                return {
+                    "manifest": manifest_dict,
+                    "data_streams": data_streams,
+                    "messages": [AIMessage(content=f"Manifest read successfully. Data streams: {data_streams}")]
+                }
+    except Exception as e:
+        logger.error("[STEP 2] Error reading manifest: %s", e)
 
-    return updates
+    return {"messages": [AIMessage(content="Manifest read but could not parse")]}
 
 
-def should_continue(state: GenerationState) -> Literal["tools", END]:
+def web_search_node(state: GenerationState) -> dict:
     """
-    Determines whether to continue with tool calls, process results, or end.
+    Step 3: Perform web search for product logging setup instructions
     """
-    messages = state.get("messages", [])
-    last_message = messages[-1]
+    logger.info("[STEP 3] Performing web search for integration setup")
 
-    # If there are tool calls, continue to the tools node
-    if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-        return "tools"
+    manifest = state.get("manifest", {})
+    integration_name = state["integration_name"]
+    product_name = manifest.get("title", integration_name)
 
-    # Otherwise, end the graph
-    return END
+    data_streams = state.get("data_streams", [])
+    collection_method = state.get("collection_method", "")
 
-
-def should_process(state: GenerationState) -> Literal["agent", "process"]:
-    """
-    After tools run, decide if we need to process results.
-    """
-    messages = state.get("messages", [])
-
-    # Check if the last few messages include tool results
-    recent_tools = [
-        msg for msg in messages[-5:]
-        if isinstance(msg, ToolMessage)
+    # Perform searches for setup instructions
+    search_queries = [
+        f"{product_name} external logging configuration setup guide for {",".join(data_streams)}",
+        f"How to configure {product_name} to send logs to Elastic Agent",
+        f"{product_name} external logging setup via {collection_method} for {",".join(data_streams)}",
     ]
 
-    if recent_tools:
-        return "process"
-    return "agent"
+    search_results = []
+    for query in search_queries:
+        logger.info("[STEP 3] Searching: %s", query)
+        result = web_search.invoke({"query": query})
+        search_results.append(result)
+
+    combined_results = "\n\n---\n\n".join(search_results)
+
+    return {
+        "search_results": search_results,
+        "messages": [AIMessage(content=f"Search results:\n{combined_results}")]
+    }
 
 
-def finalize_state(state: GenerationState) -> dict:
+def build_doc_node(state: GenerationState) -> dict:
     """
-    Final processing before ending - ensure state is complete.
-    Extract URLs from generated markdown, verify them, and write to file.
+    Step 4: Build the documentation using LLM with all gathered information
     """
-    import re
-    import requests
+    logger.info("[STEP 4] Building documentation")
 
-    logger.info("[FINALIZE] Completing state processing")
-
-    # Extract any final information from the last message
+    integration_name = state["integration_name"]
+    manifest = state.get("manifest", {})
+    data_streams = state.get("data_streams", [])
     messages = state.get("messages", [])
-    service_info_content = ""
-    filename = f"service_info-{state.get('integration_name', '').lower()}s.md"
 
-    if messages:
-        last_message = messages[-1]
-        if hasattr(last_message, "content"):
-            content = last_message.content
-            if isinstance(content, list):
-                # Extract text from content blocks
-                text_content = "".join([
-                    item.get("text", "") if isinstance(item, dict)
-                    else str(item)
-                    for item in content
-                ])
-                service_info_content = text_content
-            elif isinstance(content, str):
-                service_info_content = content
+    # Build context for the LLM
+    context = f"""
+You are creating setup documentation for the {integration_name} integration.
 
-    # Write to file if we have content and it looks like documentation
-    if (service_info_content and
-            "# Set Up Instructions" in service_info_content):
+## Integration Information:
+- Name: {manifest.get('name', integration_name)}
+- Description: {manifest.get('description', 'N/A')}
+- Type: {manifest.get('type', 'N/A')}
+- Data Streams: {', '.join(data_streams)}
 
-        # Extract URLs from markdown
-        url_pattern = r'https?://[^\s\)\]>]+'
-        urls = re.findall(url_pattern, service_info_content)
-        verified_urls = []
-        invalid_urls = []
+## Previous Search Results:
+{messages[-1].content if messages else 'No search results available'}
 
-        logger.info("[FINALIZE] Found %d URLs to verify", len(urls))
+## Your Task:
+Generate complete setup documentation following this structure:
 
-        # Verify each URL
-        for url in set(urls):  # Use set to avoid duplicate checks
-            try:
-                logger.info("[FINALIZE] Verifying URL: %s", url)
-                response = requests.get(url, timeout=10)
-                if response.status_code == 200:
-                    verified_urls.append(url)
-                    logger.info("[FINALIZE] URL verified: %s", url)
-                else:
-                    invalid_urls.append(url)
-                    logger.warning(
-                        "[FINALIZE] URL returned status %d: %s",
-                        response.status_code, url
-                    )
-            except requests.RequestException as e:
-                invalid_urls.append(url)
-                logger.warning("[FINALIZE] URL verification failed: %s - %s",
-                               url, str(e))
+```
+# Set Up Instructions
 
-        # Remove invalid URLs from the documentation
-        for invalid_url in invalid_urls:
-            # Remove markdown links with invalid URLs
-            service_info_content = re.sub(
-                rf'\[([^\]]+)\]\({re.escape(invalid_url)}\)',
-                r'\1',
-                service_info_content
-            )
-            # Remove plain invalid URLs
-            service_info_content = service_info_content.replace(
-                invalid_url, '')
+## Vendor prerequisites
+[List what users need from the vendor side]
 
+## Elastic prerequisites
+[List Elastic Stack requirements - use version from manifest: {manifest.get('conditions', {}).get('kibana', {}).get('version', '^8.14.0')}]
+
+## Vendor set up steps
+[Detailed steps to configure the vendor system to send logs/data to Elastic Agent. Include specific commands or configuration examples where applicable.]
+
+## Kibana set up steps
+[Step-by-step guide to configure the integration in Kibana]
+
+## Validation Steps
+[How to verify the integration is working correctly]
+
+# Troubleshooting
+
+## Common Configuration Issues
+[List common problems and solutions]
+
+## Ingestion Errors
+[How to handle data ingestion issues]
+
+## API Authentication Errors
+[If applicable, how to resolve authentication issues]
+
+## Vendor Resources
+[Links to vendor documentation - provide actual URLs where possible]
+
+# Documentation sites
+[List of relevant documentation URLs]
+```
+
+Generate the documentation now:
+"""
+
+    # Call LLM to generate documentation
+    system_prompt = SystemMessage(content=SYSTEM_PROMPT)
+    prompt = HumanMessage(content=context)
+    response = LLM.invoke([system_prompt, prompt])
+
+    doc_content = response.content if hasattr(
+        response, 'content') else str(response)
+
+    return {
+        "service_info": doc_content,
+        "messages": [AIMessage(content=doc_content)]
+    }
+
+
+def validate_urls_node(state: GenerationState) -> dict:
+    """
+    Step 5.1: Extract and validate URLs from the documentation
+    """
+    logger.info("[STEP 5.1] Validating URLs in documentation")
+
+    service_info = state.get("service_info", "")
+
+    invalid_urls = validate_urls(service_info)
+
+    return {
+        "invalid_urls": list(invalid_urls)
+    }
+
+
+def clean_service_info_node(state: GenerationState) -> dict:
+    """
+    Step 5.2: Clean the service info
+    """
+    logger.info("[STEP 5.2] Cleaning service info")
+
+    service_info = state.get("service_info", "")
+    invalid_urls = state.get("invalid_urls", [])
+    cleaned_service_info = clean_result_text(service_info, invalid_urls)
+
+    return {
+        "service_info": cleaned_service_info
+    }
+
+
+def write_response_node(state: GenerationState) -> dict:
+    """
+    Step 6: Write the final documentation to file
+    """
+    logger.info("[STEP 6] Writing final documentation to file")
+
+    print("setup_steps", state.get("setup_steps", ""))
+
+    service_info = state.get("service_info", "")
+    integration_name = state.get("integration_name", "")
+    filename = f"service_info-{integration_name.lower()}.md"
+
+    try:
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(service_info)
         logger.info(
-            "[FINALIZE] Verified %d URLs, removed %d invalid URLs",
-            len(verified_urls), len(invalid_urls)
-        )
-
-        # Write to file
-        try:
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write(service_info_content)
-            logger.info("[FINALIZE] Wrote documentation to %s", filename)
-            return {
-                "service_info": service_info_content,
-                "verified_urls": verified_urls
-            }
-        except (IOError, OSError) as e:
-            logger.error("[FINALIZE] Error writing to file: %s", e)
-
-    result = service_info_content if service_info_content else ""
-    return {"service_info": result}
-
-
-# Create the StateGraph
-workflow = StateGraph(GenerationState)
-
-# Add nodes
-workflow.add_node("agent", call_agent)
-workflow.add_node("tools", ToolNode(tools))
-workflow.add_node("process", process_tool_results)
-workflow.add_node("process_final", finalize_state)
-
-# Set entry point
-workflow.set_entry_point("agent")
-
-# Add conditional edges from agent
-workflow.add_conditional_edges(
-    "agent",
-    should_continue,
-    {
-        "tools": "tools",
-        END: "process_final",
-    }
-)
-
-# After tools run, process the results
-workflow.add_conditional_edges(
-    "tools",
-    should_process,
-    {
-        "process": "process",
-        "agent": "agent",
-    }
-)
-
-# After processing, go back to agent
-workflow.add_edge("process", "agent")
-
-# Final processing before end
-workflow.add_edge("process_final", END)
-
-# Compile the graph
-agent = workflow.compile(debug=DEBUG)
+            "[STEP 6] Successfully wrote documentation to %s", filename)
+        return {
+            "messages": [AIMessage(content=f"Documentation written to {filename}")]
+        }
+    except (IOError, OSError) as e:
+        logger.error("[STEP 6] Error writing to file: %s", e)
+        return {
+            "messages": [AIMessage(content=f"Error writing file: {e}")]
+        }

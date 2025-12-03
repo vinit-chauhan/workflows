@@ -3,10 +3,8 @@
 
 import sys
 
-from langchain_core.messages import HumanMessage
-
-from agent import agent
-from agent.state import GenerationState
+from agent import workflow
+from agent.state import GenerationState, default_state
 
 
 def agent_main(integration_name: str):
@@ -14,23 +12,9 @@ def agent_main(integration_name: str):
     print(f"🚀 Starting agent for integration: {integration_name}")
     print(f"{'='*60}\n")
 
-    initial_state: GenerationState = {
-        "integration_name": integration_name,
-        "messages": [
-            HumanMessage(
-                content="Generate system documentation for the integration.")
-        ],
-        "service_info": "",
-        "manifest": {},
-        "collection_method": "",
-        "data_streams": [],
-        "product_documentation_urls": [],
-        "setup_steps": [],
-        "verified_setup_steps": [],
-        "verified_urls": [],
-    }
+    initial_state: GenerationState = default_state(integration_name)
 
-    result = agent.invoke(initial_state)
+    result = workflow.invoke(initial_state)
 
     if "messages" in result and len(result["messages"]) > 0:
         # system_info = result["messages"][-1].content
@@ -64,5 +48,5 @@ if __name__ == "__main__":
     if len(args) != 1:
         print("Usage: python main.py <integration_name>")
         sys.exit(1)
-
+    # print(workflow.get_graph().draw_mermaid())
     agent_main(args[0])
