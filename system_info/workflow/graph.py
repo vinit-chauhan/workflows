@@ -7,8 +7,9 @@ from .state import WorkflowState
 from .nodes import (
     find_relevant_packages_node,
     get_package_info_node,
-    find_product_setup_instructions_node,
-    
+    find_relevant_package_node,
+    setup_instructions_node,
+
     is_existing_integration,
 )
 
@@ -24,21 +25,24 @@ class WorkflowGraph:
             self._build_graph()
 
     def _build_graph(self) -> CompiledStateGraph:
-        graph = StateGraph(WorkflowState)
+        graph: StateGraph[WorkflowState] = StateGraph(WorkflowState)
 
         # Adding nodes to the graph
         graph.add_node("find_relevant_packages", find_relevant_packages_node)
         graph.add_node("get_package_info", get_package_info_node)
-        graph.add_node("find_product_setup_instructions", find_product_setup_instructions_node)
+        graph.add_node("setup_instructions",
+                       setup_instructions_node)
+        graph.add_node("find_relevant_package", find_relevant_package_node)
 
         # Adding edges between nodes
         graph.add_edge(START, "find_relevant_packages")
         graph.add_conditional_edges("find_relevant_packages", is_existing_integration, {
             "yes": "get_package_info",
-            "no": "find_product_setup_instructions"
+            "no": "find_relevant_package"
         })
-        graph.add_edge("get_package_info", "find_product_setup_instructions")
-        graph.add_edge("find_product_setup_instructions", END)
+        graph.add_edge("find_relevant_package", "setup_instructions")
+        graph.add_edge("get_package_info", "setup_instructions")
+        graph.add_edge("setup_instructions", END)
 
         self.compiled_graph = graph.compile()
 

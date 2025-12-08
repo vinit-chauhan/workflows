@@ -4,8 +4,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-PRO_MODEL = os.getenv('GEMINI_PRO_MODEL', "gemini-3.0-pro-preview")
+PRO_MODEL = os.getenv('GEMINI_PRO_MODEL', "gemini-2.5-pro")
 FLASH_MODEL = os.getenv('GEMINI_FLASH_MODEL', "gemini-2.5-flash")
+DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
 pro_llm = ChatGoogleGenerativeAI(model=PRO_MODEL, temperature=0)
 flash_llm = ChatGoogleGenerativeAI(model=FLASH_MODEL, temperature=0)

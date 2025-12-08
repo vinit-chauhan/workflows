@@ -11,6 +11,7 @@ class WorkflowState(TypedDict):
     """
     messages: Annotated[AnyMessage, add_messages]
 
+    user_input: Annotated[str, "The user's input"]
     integration_name: Annotated[str, "The name of the integration package"]
     integration_manifest: Annotated[dict, "The manifest of the integration package"]
     integration_docs: Annotated[str, "The docs of the integration package"]

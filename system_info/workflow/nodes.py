@@ -1,7 +1,11 @@
 import os
-import yaml
 from typing import Any, Literal
 
+import yaml
+from langchain_core.messages import AIMessage, HumanMessage
+
+from .agents import product_setup_agent, find_relevant_package_agent, find_relevant_package_prompt
+from .prompts import product_setup_prompt
 from .state import WorkflowState
 from .constants import flash_llm, INTEGRATION_ROOT_PATH
 
@@ -34,10 +38,8 @@ Packages: {",".join(packages)}
 
     # If the answer is in the packages, return the integration name
     # Otherwise, return an empty string
-    if answer in packages:
-        return {"integration_name": answer}
-    else:
-        return {"integration_name": ""}
+    answer = answer if answer in packages else ""
+    return {"user_input": user_input, "integration_name": answer}
 
 
 def get_package_info_node(state: WorkflowState) -> dict[str, Any]:
@@ -55,24 +57,58 @@ def get_package_info_node(state: WorkflowState) -> dict[str, Any]:
     docs_path = os.path.join(package_path, "_dev",
                              "build", "docs", "README.md")
 
-    with open(manifest_path, "r", encoding="utf-8") as f:
-        try:
-            integration_manifest = yaml.safe_load(f)
-        except yaml.YAMLError as e:
-            print(f"Error loading manifest: {e}")
-            integration_manifest = {}
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            try:
+                integration_manifest = yaml.safe_load(f)
+            except yaml.YAMLError as e:
+                print(f"Error loading manifest: {e}")
+                integration_manifest = {}
 
-    with open(docs_path, "r", encoding="utf-8") as f:
-        integration_docs = f.read()
+        with open(docs_path, "r", encoding="utf-8") as f:
+            integration_docs = f.read()
+    except FileNotFoundError as e:
+        print(f"Error loading manifest or docs: {e}")
+        return {"integration_manifest": {}, "integration_docs": ""}
 
     return {"integration_manifest": integration_manifest, "integration_docs": integration_docs}
 
 
-def find_product_setup_instructions_node(_: WorkflowState) -> dict[str, Any]:
+def setup_instructions_node(state: WorkflowState) -> dict[str, Any]:
     """
     Find the product setup instructions for the product.
     """
-    return {"product_setup_instructions": ""}
+
+    product_name = state["integration_name"]
+
+    prompt = product_setup_prompt.invoke({
+        "integration_name": product_name
+    }).to_string()
+
+    response = product_setup_agent.invoke(
+        {"messages": [HumanMessage(content=prompt)]}
+    )
+
+    message: AIMessage = response["messages"][-1]
+    return {"product_setup_instructions": message.text.strip('`')}
+
+
+def find_relevant_package_node(state: WorkflowState) -> dict[str, Any]:
+    """
+    Find the relevant package for the product.
+    """
+    user_input = state["user_input"]
+
+    prompt = find_relevant_package_prompt.invoke({
+        "user_input": user_input
+    }).to_string()
+
+    response = find_relevant_package_agent.invoke(
+        {"messages": [HumanMessage(content=prompt)]}
+    )
+
+    message: AIMessage = response["messages"][-1]
+    return {"integration_name": message.text.lower().strip()}
 
 
 def is_existing_integration(state: WorkflowState) -> Literal["yes", "no"]:
