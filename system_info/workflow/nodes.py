@@ -1,13 +1,25 @@
+import re
 import os
 from typing import Any, Literal
 
 import yaml
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.output_parsers import StrOutputParser
 
-from .agents import product_setup_agent, find_relevant_package_agent, find_relevant_package_prompt
-from .prompts import product_setup_prompt
 from .state import WorkflowState
 from .constants import flash_llm, INTEGRATION_ROOT_PATH
+from .agents import (
+    final_result_generation_agent,
+    product_setup_external_agent,
+    search_relevant_package_agent,
+    product_setup_agent,
+)
+from .prompts import (
+    product_setup_external_prompt,
+    search_relevant_package_prompt,
+    product_setup_prompt,
+    final_result_generation_prompt,
+)
 
 
 def find_relevant_packages_node(state: WorkflowState) -> dict[str, Any]:
@@ -74,15 +86,18 @@ def get_package_info_node(state: WorkflowState) -> dict[str, Any]:
     return {"integration_manifest": integration_manifest, "integration_docs": integration_docs}
 
 
-def setup_instructions_node(state: WorkflowState) -> dict[str, Any]:
+def setup_instructions_context_node(state: WorkflowState) -> dict[str, Any]:
     """
-    Find the product setup instructions for the product.
+    Find the relevant product setup instructions for the product from the integration docs.
     """
-
-    product_name = state["integration_name"]
+    integration_name = state["integration_name"]
+    integration_docs = state["integration_docs"]
+    integration_manifest = state["integration_manifest"]
 
     prompt = product_setup_prompt.invoke({
-        "integration_name": product_name
+        "integration_name": integration_name,
+        "integration_docs": integration_docs,
+        "integration_manifest": integration_manifest
     }).to_string()
 
     response = product_setup_agent.invoke(
@@ -90,20 +105,43 @@ def setup_instructions_node(state: WorkflowState) -> dict[str, Any]:
     )
 
     message: AIMessage = response["messages"][-1]
+    return {"integration_context": message.text.strip('`')}
+
+
+def setup_instructions_external_info_node(state: WorkflowState) -> dict[str, Any]:
+    """
+    Find the product setup instructions from internet for the product.
+    """
+
+    product_name = state["integration_name"]
+    integration_context = state["integration_context"]
+
+    prompt = product_setup_external_prompt.invoke({
+        "integration_name": product_name,
+        "integration_context": integration_context if integration_context else ""
+    }).to_string()
+
+    response = product_setup_external_agent.invoke(
+        {"messages": [HumanMessage(content=prompt)]}
+    )
+
+    message: AIMessage = response["messages"][-1]
     return {"product_setup_instructions": message.text.strip('`')}
 
 
-def find_relevant_package_node(state: WorkflowState) -> dict[str, Any]:
+def search_relevant_package_node(state: WorkflowState) -> dict[str, Any]:
     """
     Find the relevant package for the product.
     """
     user_input = state["user_input"]
 
-    prompt = find_relevant_package_prompt.invoke({
+    print("[Experimental] Searching for relevant package for the product...")
+
+    prompt = search_relevant_package_prompt.invoke({
         "user_input": user_input
     }).to_string()
 
-    response = find_relevant_package_agent.invoke(
+    response = search_relevant_package_agent.invoke(
         {"messages": [HumanMessage(content=prompt)]}
     )
 
@@ -121,3 +159,24 @@ def is_existing_integration(state: WorkflowState) -> Literal["yes", "no"]:
         return "no"
 
     return "yes"
+
+
+def final_result_generation_node(state: WorkflowState) -> dict[str, Any]:
+    """
+    Generate the final result.
+    """
+
+    prompt = final_result_generation_prompt.invoke({
+        "integration_name": state["integration_name"],
+        "integration_context": state["integration_context"],
+        "integration_docs": state["integration_docs"],
+        "product_setup_instructions": state["product_setup_instructions"],
+    }).to_string()
+
+    response = final_result_generation_agent.invoke(
+        {"messages": [HumanMessage(content=prompt)]}
+    )
+
+    message: AIMessage = response["messages"][-1]
+
+    return {"final_result": message.text.strip('`')}

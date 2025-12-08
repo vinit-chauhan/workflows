@@ -16,7 +16,11 @@ class WorkflowState(TypedDict):
     integration_manifest: Annotated[dict, "The manifest of the integration package"]
     integration_docs: Annotated[str, "The docs of the integration package"]
 
+    integration_context: Annotated[str, "The context of the integration"]
+
     product_setup_instructions: Annotated[str, "The setup instructions for the product"]
+
+    final_result: Annotated[str, "The final result for the product"]
 
 
 def default_state() -> 'WorkflowState':
@@ -27,7 +31,10 @@ def default_state() -> 'WorkflowState':
         "messages": [],
         "integration_name": "",
         "integration_manifest": {},
-        "integration_docs": ""
+        "integration_docs": "",
+        "integration_context": "",
+        "product_setup_instructions": "",
+        "final_result": ""
     }
 
 

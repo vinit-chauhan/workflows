@@ -7,8 +7,10 @@ from .state import WorkflowState
 from .nodes import (
     find_relevant_packages_node,
     get_package_info_node,
-    find_relevant_package_node,
-    setup_instructions_node,
+    search_relevant_package_node,
+    setup_instructions_context_node,
+    setup_instructions_external_info_node,
+    final_result_generation_node,
 
     is_existing_integration,
 )
@@ -30,19 +32,28 @@ class WorkflowGraph:
         # Adding nodes to the graph
         graph.add_node("find_relevant_packages", find_relevant_packages_node)
         graph.add_node("get_package_info", get_package_info_node)
-        graph.add_node("setup_instructions",
-                       setup_instructions_node)
-        graph.add_node("find_relevant_package", find_relevant_package_node)
+        graph.add_node("setup_instructions_external_info",
+                       setup_instructions_external_info_node)
+        graph.add_node("setup_instructions_context",
+                       setup_instructions_context_node)
+        graph.add_node("search_relevant_package", search_relevant_package_node)
+        graph.add_node("final_result_generation", final_result_generation_node)
+
 
         # Adding edges between nodes
         graph.add_edge(START, "find_relevant_packages")
         graph.add_conditional_edges("find_relevant_packages", is_existing_integration, {
             "yes": "get_package_info",
-            "no": "find_relevant_package"
+            "no": "search_relevant_package"
         })
-        graph.add_edge("find_relevant_package", "setup_instructions")
-        graph.add_edge("get_package_info", "setup_instructions")
-        graph.add_edge("setup_instructions", END)
+        graph.add_edge("search_relevant_package",
+                       "setup_instructions_external_info")
+        graph.add_edge("get_package_info", "setup_instructions_context")
+        graph.add_edge("setup_instructions_context",
+                       "setup_instructions_external_info")
+        graph.add_edge("setup_instructions_external_info",
+                       "final_result_generation")
+        graph.add_edge("final_result_generation", END)
 
         self.compiled_graph = graph.compile()
 
