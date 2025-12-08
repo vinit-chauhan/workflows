@@ -1,10 +1,8 @@
-import re
 import os
 from typing import Any, Literal
 
 import yaml
 from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.output_parsers import StrOutputParser
 
 from .state import WorkflowState
 from .constants import flash_llm, INTEGRATION_ROOT_PATH
@@ -12,13 +10,15 @@ from .agents import (
     final_result_generation_agent,
     product_setup_external_agent,
     search_relevant_package_agent,
-    product_setup_agent,
+    setup_instructions_context_agent,
+    url_verifier_agent,
 )
 from .prompts import (
     product_setup_external_prompt,
     search_relevant_package_prompt,
-    product_setup_prompt,
+    setup_instructions_context_prompt,
     final_result_generation_prompt,
+    url_verification_prompt,
 )
 
 
@@ -94,13 +94,13 @@ def setup_instructions_context_node(state: WorkflowState) -> dict[str, Any]:
     integration_docs = state["integration_docs"]
     integration_manifest = state["integration_manifest"]
 
-    prompt = product_setup_prompt.invoke({
+    prompt = setup_instructions_context_prompt.invoke({
         "integration_name": integration_name,
         "integration_docs": integration_docs,
         "integration_manifest": integration_manifest
     }).to_string()
 
-    response = product_setup_agent.invoke(
+    response = setup_instructions_context_agent.invoke(
         {"messages": [HumanMessage(content=prompt)]}
     )
 
@@ -180,3 +180,23 @@ def final_result_generation_node(state: WorkflowState) -> dict[str, Any]:
     message: AIMessage = response["messages"][-1]
 
     return {"final_result": message.text.strip('`')}
+
+
+def url_verification_node(state: WorkflowState) -> dict[str, Any]:
+    """
+    Verify the URLs in the final result.
+    """
+
+    final_result = state["final_result"]
+
+    prompt = url_verification_prompt.invoke({
+        "product_name": state["integration_name"],
+        "final_result": final_result
+    }).to_string()
+
+    response = url_verifier_agent.invoke({
+        "messages": [HumanMessage(content=prompt)]
+    })
+
+    message: AIMessage = response["messages"][-1]
+    return {"final_result_verified": message.text.strip('`').strip(), "messages": response["messages"]}

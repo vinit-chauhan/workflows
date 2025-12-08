@@ -1,6 +1,6 @@
 from langchain_core.prompts import PromptTemplate
 
-product_setup_prompt = PromptTemplate(
+product_setup_external_prompt = PromptTemplate(
     template="""You are a Senior Technical Writer at Elastic and your job is to write \
 setup steps for the third party integrations in markdown format.
 
@@ -42,11 +42,15 @@ Cisco ISE sends logs to external servers via syslog. You need to configure a "Re
 
 Now generate the setup steps for the integration.
 
-integration name: {integration_name}
-setup steps:""",
-    input_variables=["integration_name"]
-)
+Integration name: {integration_name}
 
+Integration Context: 
+```
+{integration_context}
+```
+Setup steps:""",
+    input_variables=["integration_name", "integration_context"]
+)
 
 PRODUCT_SETUP_EXTERNAL_SYSTEM_PROMPT = """
 You are a helpful assistant that finds the product setup instructions for the product.
@@ -62,18 +66,7 @@ Information reliability precedence:
 """
 
 
-product_setup_external_prompt = PromptTemplate(
-    template="""Integration name: {integration_name}
-
-Integration Context: 
-```
-{integration_context}
-```
-Setup steps:""",
-    input_variables=["integration_name", "integration_context"]
-)
-
-PRODUCT_SETUP_SYSTEM_PROMPT = """
+SETUP_INSTRUCTIONS_CONTEXT_SYSTEM_PROMPT = """
 You are a Senior Technical Writer at Elastic and your job is to write \
 setup steps for the third party integrations in markdown format.
 
@@ -86,7 +79,7 @@ The useful information should contain the following:
 - Any other Notes and mentions
 """
 
-product_setup_prompt = PromptTemplate(
+setup_instructions_context_prompt = PromptTemplate(
     template="""Integration name: {integration_name}
 
 Integration docs: 
@@ -237,3 +230,32 @@ Answer:
     ]
 )
 
+
+URL_VERIFIER_SYSTEM_PROMPT = """
+You are a helpful assistant that verifies the URLs in the final result.
+
+You should do the following,
+1. Extract all non elastic.co URLs from the final result.
+2. Fetch the content of each URL using the fetch_url_content tool.
+3. Verify if the content is related to the logging setup or the product documentation for the given product.
+4. If the URL is invalid, remove the URL from the final result.
+5. If the URL is valid, keep it as is.
+
+URL is valid if it returns a 200 status code and has content related to either the logging setup or the product documentation for the given product.
+Otherwise, it is invalid.
+
+Always use the available tools to fetch content and verify the URLs.
+"""
+
+url_verification_prompt = PromptTemplate(
+    template="""
+    product name: {product_name}
+    final result: 
+    ```
+    {final_result}
+    ```
+
+    Answer:
+    """,
+    input_variables=["product_name", "final_result"]
+)
