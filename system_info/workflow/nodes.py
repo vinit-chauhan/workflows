@@ -26,11 +26,13 @@ def find_relevant_packages_node(state: WorkflowState) -> dict[str, Any]:
     """
     Find the most relevant packages for the user's input.
     """
-
-    packages_path = os.path.join(INTEGRATION_ROOT_PATH, "packages")
-
-    packages = os.listdir(packages_path)
     user_input = state["messages"][-1].content
+
+    try:
+        packages_path = os.path.join(INTEGRATION_ROOT_PATH, "packages")
+        packages = os.listdir(packages_path)
+    except FileNotFoundError:
+        return {"user_input": user_input, "integration_name": ""}
 
     prompt = f"""You are a helpful assistant.
 Your task is to find the most relevant packages for the user's input.

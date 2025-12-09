@@ -21,11 +21,10 @@ class WorkflowGraph:
     """
     A graph for the workflow.
     """
-    compiled_graph: CompiledStateGraph = None
 
     def __init__(self) -> None:
-        if not self.compiled_graph:
-            self._build_graph()
+        self.compiled_graph: CompiledStateGraph = None
+        self._build_graph()
 
     def _build_graph(self) -> CompiledStateGraph:
         graph: StateGraph[WorkflowState] = StateGraph(WorkflowState)

@@ -10,5 +10,6 @@ dependencies = [
     "langchain>=1.0.5",
     "langchain-google-genai>=3.0.2",
     "langgraph>=1.0.3",
+    "playwright>=1.57.0",
     "requests>=2.32.5",
 ]

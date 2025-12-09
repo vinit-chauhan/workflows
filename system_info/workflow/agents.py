@@ -1,7 +1,7 @@
 from langchain.agents import create_agent
 
 from .constants import pro_llm, DEBUG, flash_llm
-from .tools import fetch_url_content, web_search_tool
+from .tools import fetch_url_content, web_search_tool, extract_url_context
 from .prompts import (
     SETUP_INSTRUCTIONS_EXTERNAL_INFO_SYSTEM_PROMPT,
     SETUP_INSTRUCTIONS_CONTEXT_SYSTEM_PROMPT,
@@ -45,7 +45,7 @@ final_result_generation_agent = create_agent(
 
 url_verifier_agent = create_agent(
     model=flash_llm,
-    tools=[fetch_url_content],
+    tools=[fetch_url_content, extract_url_context],
     name="url_verifier_agent",
     system_prompt=URL_VERIFIER_SYSTEM_PROMPT,
     debug=DEBUG
