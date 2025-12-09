@@ -3,6 +3,13 @@ import os
 from langchain_core.messages import HumanMessage
 from workflow import get_graph, default_state,DEBUG
 
+from phoenix.otel import register
+
+# configure the Phoenix tracer
+tracer_provider = register(
+    project_name="system-info-workflow",
+    auto_instrument=True
+)
 
 def write_to_file(result: str, file_name: str):
     """
@@ -30,7 +37,9 @@ def run(product_name: str):
     if result:
         integration_name = result["integration_name"]
         file_name = f"service_info-{integration_name}.md"
-        write_to_file(result["final_result"], file_name)
+        # Use the verified result if available, otherwise use the unverified result
+        content = result.get("final_result", "")
+        write_to_file(content, file_name)
         print(f"System info for {product_name} written to file: {file_name}")
     else:
         print("No result")

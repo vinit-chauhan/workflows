@@ -1,5 +1,43 @@
 from langchain_core.prompts import PromptTemplate
 
+# ============================================================================
+# Find Relevant Package Prompts
+# ============================================================================
+
+FIND_RELEVANT_PACKAGE_SYSTEM_PROMPT = """
+You are a package matching assistant that helps identify the most relevant 
+integration package based on user input.
+
+Your task:
+1. Analyze the user's input to understand what product/service they want
+2. Match it to the most relevant package name from the provided list
+3. Return ONLY the exact package name, no other text
+
+Output rules:
+- Return the exact package name as it appears in the list
+- If no exact match exists, return an empty string
+- No explanations, no additional text
+"""
+
+find_relevant_package_prompt = PromptTemplate(
+    template="""Available packages: {packages}
+
+User input: {user_input}
+
+Examples:
+- User input: "cisco_ios" → Package: cisco_ios
+- User input: "Cisco ISE" → Package: cisco_ise
+- User input: "Check Point Firewall" → Package: checkpoint
+
+Match the user input to the most relevant package name:""",
+    input_variables=["user_input", "packages"]
+)
+
+
+# ============================================================================
+# Setup Instructions External Info Prompts
+# ============================================================================
+
 setup_instructions_external_info_prompt = PromptTemplate(
     template="""Now generate the setup steps for the integration.
 
@@ -9,29 +47,38 @@ Integration Context:
 ```
 {integration_context}
 ```
-Setup steps:""",
+
+Generate detailed setup steps in markdown format with specific configuration instructions:""",
     input_variables=["integration_name", "integration_context"]
 )
 
 SETUP_INSTRUCTIONS_EXTERNAL_INFO_SYSTEM_PROMPT = """
-You are a helpful assistant that finds the product setup instructions for the product.
+You are a technical documentation specialist that generates detailed product setup 
+instructions for configuring external logging.
 
-The setup steps are valid if they are extracted from the product documentation. 
-The documentation you generate will be used by LLMs to help users set up integrations.
+Your task:
+Generate comprehensive, step-by-step instructions for configuring the product to send 
+logs to Elastic Agent via syslog or other logging mechanisms.
 
-Setup steps should be a list of detailed steps to configure external logging for the given product.
-
-Use the web_search_tool to find more information about the integration and the setup steps.
-A page is more reliable if it is from the official website of the product.
-Add all the search results to the reference section.
-
-While doing a web search, if 'Integration Context' is available, use the compatible version from the integration docs.
+Requirements:
+1. Use web_search_tool to find official documentation
+2. If 'Integration Context' is available, use the compatible version mentioned
+3. Include specific UI navigation paths (e.g., "Navigate to Settings > Logging")
+4. Provide exact configuration parameters (ports, protocols, facilities)
+5. Add all search results to the Reference section
 
 Information reliability precedence:
-1. The useful information from the Integration Context (If available)
-2. The useful information from the web search tool (Direct search results from the web search tool)
+1. Integration Context (when available) - highest priority
+2. Official vendor documentation from web search
+3. Community guides and third-party documentation
 
-Example:
+Output format:
+- ## Setup Steps (detailed numbered list with specific values)
+- ## Reference (list of source URLs)
+
+Length guidance: 6-12 steps optimal, each with clear actions.
+
+✅ GOOD Example:
 
 integration name: cisco_ise
 setup steps:
@@ -49,7 +96,7 @@ Cisco ISE sends logs to external servers via syslog. You need to configure a "Re
     *   **Port**: The port number the Elastic Agent will be listening on for syslog messages.
     *   **Facility Code**: Select the appropriate logging facility (e.g., `Local7`).
     *   **Maximum Length**: Set to 8192 or higher to prevent message truncation.
-5.  Click **Save**.
+5.  Click **Submit**.
 6.  Next, you must assign log categories to your new target. Navigate to **Administration > System > Logging > Logging Categories**.
 7.  For each log category you wish to forward to Elastic (e.g., `Passed Authentications`, `Failed Attempts`), select the category and add your newly created remote target (`elastic-agent-syslog`) to the list.
 8.  Click **Save** to apply the changes.
@@ -58,20 +105,77 @@ Cisco ISE sends logs to external servers via syslog. You need to configure a "Re
 - [Configure External Syslog Server on ISE - Cisco](https://www.cisco.com/c/en/us/support/docs/security/identity-services-engine/222223-configure-external-syslog-server-on-ise.html)
 - [Cisco ISE Logging User Guide](https://www.cisco.com/en/US/docs/security/ise/1.0/user_guide/ise10_logging.html)
 ```
+
+❌ BAD Example (avoid these):
+```
+## Setup Steps
+1. Configure logging in the product
+2. Set up syslog
+3. Connect to Elastic Agent
+
+## Reference:
+- Check the product documentation
+```
+Why bad: Vague, no specific paths, no configuration details, generic reference.
+
+Error handling:
+- If web search returns no results: State "Official documentation not found" and provide general syslog configuration guidance
+- If Integration Context is incomplete: Use standard logging configuration patterns
+- Always include at least one reference URL if found
 """
 
 
 SETUP_INSTRUCTIONS_CONTEXT_SYSTEM_PROMPT = """
-You are a Senior Technical Writer at Elastic and your job is to write \
-setup steps for the third party integrations in markdown format.
+You are a Senior Technical Writer at Elastic. Your job is to extract and organize 
+useful information from integration documentation for third-party integrations.
 
-Extract useful information from the integration docs and generate setup steps for the integration.
-The useful information should contain the following:
-- The product name
-- Compatible version
-- Setup instructions
-- Reference
-- Any other Notes and mentions
+Your task:
+Analyze the integration docs and manifest to extract key information that will help 
+users understand compatibility, setup requirements, and configuration details.
+
+Extract and organize:
+1. **Product name**: Full official name
+2. **Compatible versions**: Specific version numbers tested/supported
+3. **Setup method**: How logging is configured (syslog, API, file monitoring, etc.)
+4. **Prerequisites**: Any required settings, ports, or permissions
+5. **Configuration details**: Specific parameters mentioned
+6. **References**: Links to vendor documentation
+7. **Important notes**: Warnings, limitations, or special considerations
+
+Output format: Structured markdown with clear headers and bullet points.
+Length: Keep concise (200-400 words), focus on actionable information.
+
+✅ GOOD Example:
+```markdown
+## Product Information
+- **Product**: Cisco Identity Services Engine (ISE)
+- **Compatible Versions**: 3.1.0.518 and above
+- **Tested Against**: ISE version 3.1.0.518
+
+## Setup Method
+- **Protocol**: Syslog (TCP or UDP)
+- **Configuration Location**: Administration > System > Logging > Remote Logging Targets
+- **Log Categories**: Configurable per category (Authentications, Failed Attempts, etc.)
+
+## Configuration Details
+- **Recommended Maximum Length**: 8192 bytes (prevents log truncation)
+- **Facility Code**: Typically Local7
+- **Port**: Configurable (default syslog ports: 514 UDP, 601 TCP)
+
+## Important Notes
+- Segmentation may occur with smaller maximum length values, causing field mapping issues
+- Log categories must be explicitly assigned to remote targets
+
+## References
+- [Official ISE Documentation](https://www.cisco.com/c/en/us/support/docs/security/identity-services-engine/)
+```
+
+❌ BAD Example (avoid):
+```markdown
+Cisco ISE is a network access control product. It supports logging. 
+You can configure it to send logs to Elastic.
+```
+Why bad: Too vague, no version info, no specific configuration details.
 """
 
 setup_instructions_context_prompt = PromptTemplate(
@@ -87,42 +191,93 @@ Integration manifest:
 {integration_manifest}
 ```
 
-Useful information:""",
+Extract and organize the useful information in structured markdown format as specified in the system prompt:""",
     input_variables=["integration_name",
                      "integration_docs", "integration_manifest"]
 )
 
 
 SEARCH_RELEVANT_PACKAGE_SYSTEM_PROMPT = """
-You are a helpful assistant that finds the relevant package for the product.
-Use the web search tool to find more information about the product and the relevant package.
+You are a package identification specialist that helps find the correct integration 
+package name for products that don't exist in the local package list.
 
-only return the name of the package, no other text. If name has more than one word, use underscore to join the words.
-If you are unable to find the package, return user input in lowercase."""
+Your task:
+1. Use web_search_tool to research the product/service mentioned in user input
+2. Determine the most appropriate package name following naming conventions
+3. Return ONLY the package name in the correct format
+
+Naming conventions:
+- Use lowercase only
+- Use underscores (_) to separate words
+- Use the product's common/official name
+- Remove special characters and punctuation
+
+Output rules:
+- Return ONLY the package name, no other text
+- No explanations or additional information
+- If unable to determine a clear package name, return the user input transformed to lowercase with underscores
+
+Examples of transformations:
+- "Project Discovery Cloud" → "project_discovery_cloud"
+- "PfSense Firewall" → "pfsense"
+- "Darktrace AI" → "darktrace"
+- "Check Point NGFW" → "checkpoint"
+"""
 
 
 search_relevant_package_prompt = PromptTemplate(
-    template="""Example:
-    User input: "Project Discovery Cloud"
-    Package: project_discovery_cloud
+    template="""User wants to set up integration for: {user_input}
 
-    User input: {user_input}
-    Answer:""",
+Research the product and determine the appropriate package name following the naming conventions:
+
+Examples:
+- User input: "Project Discovery Cloud" → package_name: project_discovery_cloud
+- User input: "Cisco ISE Security" → package_name: cisco_ise
+- User input: "WatchGuard Firebox" → package_name: watchguard_firebox
+
+Package name:""",
     input_variables=["user_input"]
 )
 
 FINAL_RESULT_GENERATION_SYSTEM_PROMPT = """
-You are a Senior Technical Writer at Elastic and your job is to write \
-system documentation for third party integrations.
+You are a Senior Technical Writer at Elastic creating comprehensive system documentation 
+for third-party integrations.
 
-Only return the response format, no other text. 
-Do not include any other information in your response.
+Your task:
+Create complete, professional documentation following the exact template structure provided. 
+Use ONLY the information from integration context, integration docs, and setup steps.
 
-Only use the information provided in the integration context, integration docs, \
-and setup steps to generate the response format.
+Requirements:
+1. Fill in ALL sections of the template
+2. If a section has no relevant information, write "Not specified" or "See vendor documentation"
+3. Keep descriptions concise but informative (2-4 sentences per section)
+4. Use proper markdown formatting (headers, lists, bold, code blocks)
+5. Add all relevant URLs to appropriate sections
+6. Use web_search_tool to find additional logging setup URLs when needed
 
-Add all the URLs in the appropriate section in the response format. 
-Use web_search_tool to find more external logging setup related URLs."""
+Content guidelines:
+- Common use cases: 2-3 specific use cases (not generic)
+- Data types: Be specific (logs, metrics, traces, events)
+- Compatibility: Include version numbers when available
+- Setup steps: Must be actionable and specific
+- Troubleshooting: Include real issues with solutions
+
+URL placement:
+- Vendor set up steps: Links to official logging configuration guides
+- Vendor Resources: Links to troubleshooting and help documentation
+- Documentation sites: Links to product overview and API documentation
+
+Output rules:
+- Return ONLY the filled template in markdown format
+- No explanatory text before or after the template
+- No comments about missing information (just mark as "Not specified")
+- Preserve exact template structure and section headers
+
+Error handling:
+- If integration context is empty: Use only setup steps and search results
+- If setup steps are incomplete: Note this in Common Configuration Issues
+- If no URLs found: Use generic vendor website if available
+"""
 
 final_result_generation_prompt = PromptTemplate(
     template="""
@@ -143,74 +298,69 @@ Setup steps:
 {product_setup_instructions}
 ```
 
-Response format:
+Response format (fill in each section with relevant information):
 ```
 # Service Info
 
 ## Common use cases
 
-/_ Common use cases that this will facilitate _/
+<List 2-3 specific use cases that this integration facilitates>
 
 ## Data types collected
 
-/_ What types of data this integration can collect _/
+<Specify what types of data this integration collects: logs, metrics, traces, events, etc.>
 
 ## Compatibility
 
-/_ Information on the vendor versions this integration is compatible with or has been tested against _/
+<Vendor versions this integration is compatible with or has been tested against>
 
 ## Scaling and Performance
 
-/_ Vendor-specific information on what performance can be expected, how to set up scaling, etc. _/
+<Vendor-specific information on performance, scaling, throughput expectations, etc.>
 
 # Set Up Instructions
 
 ## Vendor prerequisites
 
-/_ Add any vendor specific prerequisites, e.g. "an API key with permission to access <X, Y, Z> is required" _/
+<Vendor-specific requirements: accounts, permissions, licenses, enabled features, etc.>
 
 ## Elastic prerequisites
 
-/_ If there are any Elastic specific prerequisites, add them here
-The stack version and agentless support is not needed, as this can be taken from the manifest _/
+<Elastic-specific prerequisites: Agent requirements, policy settings, etc.>
 
 ## Vendor set up steps
 
-/_ List the specific steps that are needed in the vendor system to send data to Elastic.
-If multiple input types are supported, add instructions for each in a subsection _/
+<Detailed step-by-step instructions for configuring the vendor system to send data to Elastic>
 
 ## Kibana set up steps
 
-/_ List the specific steps that are needed in Kibana to add and configure the integration to begin ingesting data _/
+<Steps to add and configure the integration in Kibana to begin ingesting data>
 
 # Validation Steps
 
-/_ List the steps that are needed to validate the integration is working, after ingestion has started.
-This may include steps on the vendor system to trigger data flow, and steps on how to check the data is correct in Kibana dashboards or alerts. _/
+<Steps to validate the integration is working: triggering test events, checking dashboards, verifying data flow>
 
 # Troubleshooting
 
-/* Add lists of "*Issue* / *Solutions*" for troubleshooting knowledge base into the most appropriate section below */
-
 ## Common Configuration Issues
 
-/_ For generic problems such as "service failed to start" or "no data collected" _/
+<Common problems and solutions: connectivity issues, no data collected, service failures>
 
 ## Ingestion Errors
 
-/_ For problems that involve "error.message" being set on ingested data _/
+<Issues involving error.message in ingested data: parsing errors, format issues, field mapping problems>
 
 ## API Authentication Errors
 
-/_ For API authentication failures, credential errors, and similar _/
+<Authentication failures, credential errors, permission issues>
 
 ## Vendor Resources
 
-/_ If the vendor has a troubleshooting specific help page, add it here _/
+<Links to vendor troubleshooting documentation and help resources>
 
 # Documentation sites
 
-/_ List of URLs that contain info on the service (reference pages, set up help, API docs, etc. _/
+<List of URLs with product information: reference pages, setup guides, API docs, official documentation>
 ```
 
 Only return response in the above mentioned format, no other text.

@@ -22,10 +22,6 @@ class WorkflowState(TypedDict):
 
     final_result: Annotated[str, "The final result for the product"]
 
-    # TODO: Remove this after the verification is done
-    final_result_verified: Annotated[str,
-                                     "The verified final result for the product"]
-
 
 def default_state() -> 'WorkflowState':
     """
@@ -39,5 +35,4 @@ def default_state() -> 'WorkflowState':
         "integration_context": "",
         "product_setup_instructions": "",
         "final_result": "",
-        "final_result_verified": ""
     }

@@ -19,6 +19,8 @@ from .prompts import (
     setup_instructions_context_prompt,
     final_result_generation_prompt,
     url_verification_prompt,
+    find_relevant_package_prompt,
+    FIND_RELEVANT_PACKAGE_SYSTEM_PROMPT,
 )
 
 
@@ -34,20 +36,19 @@ def find_relevant_packages_node(state: WorkflowState) -> dict[str, Any]:
     except FileNotFoundError:
         return {"user_input": user_input, "integration_name": ""}
 
-    prompt = f"""You are a helpful assistant.
-Your task is to find the most relevant packages for the user's input.
-Return only the name of the package, no other text.
+    # Use the proper prompt template
+    prompt = find_relevant_package_prompt.invoke({
+        "user_input": user_input,
+        "packages": ", ".join(packages)
+    }).to_string()
 
-Example:
-User input: "cisco_ios"
-Packages: cisco_ios,cisco_duo,cisco_asa
-Answer: cisco_ios
-
-
-User input: {user_input}
-Packages: {",".join(packages)}
-"""
-    response = flash_llm.invoke(prompt)
+    # Create messages with system prompt
+    messages = [
+        {"role": "system", "content": FIND_RELEVANT_PACKAGE_SYSTEM_PROMPT},
+        {"role": "user", "content": prompt}
+    ]
+    
+    response = flash_llm.invoke(messages)
     answer = response.content.strip()
 
     # If the answer is in the packages, return the integration name
@@ -201,4 +202,4 @@ def url_verification_node(state: WorkflowState) -> dict[str, Any]:
     })
 
     message: AIMessage = response["messages"][-1]
-    return {"final_result_verified": message.text.strip('`').strip(), "messages": response["messages"]}
+    return {"final_result": message.text.strip('`').strip()}
