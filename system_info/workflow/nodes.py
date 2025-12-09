@@ -8,13 +8,13 @@ from .state import WorkflowState
 from .constants import flash_llm, INTEGRATION_ROOT_PATH
 from .agents import (
     final_result_generation_agent,
-    product_setup_external_agent,
+    setup_instructions_external_info_agent,
     search_relevant_package_agent,
     setup_instructions_context_agent,
     url_verifier_agent,
 )
 from .prompts import (
-    product_setup_external_prompt,
+    setup_instructions_external_info_prompt,
     search_relevant_package_prompt,
     setup_instructions_context_prompt,
     final_result_generation_prompt,
@@ -116,12 +116,12 @@ def setup_instructions_external_info_node(state: WorkflowState) -> dict[str, Any
     product_name = state["integration_name"]
     integration_context = state["integration_context"]
 
-    prompt = product_setup_external_prompt.invoke({
+    prompt = setup_instructions_external_info_prompt.invoke({
         "integration_name": product_name,
         "integration_context": integration_context if integration_context else ""
     }).to_string()
 
-    response = product_setup_external_agent.invoke(
+    response = setup_instructions_external_info_agent.invoke(
         {"messages": [HumanMessage(content=prompt)]}
     )
 

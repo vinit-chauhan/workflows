@@ -3,18 +3,18 @@ from langchain.agents import create_agent
 from .constants import pro_llm, DEBUG, flash_llm
 from .tools import fetch_url_content, web_search_tool
 from .prompts import (
-    PRODUCT_SETUP_EXTERNAL_SYSTEM_PROMPT,
+    SETUP_INSTRUCTIONS_EXTERNAL_INFO_SYSTEM_PROMPT,
     SETUP_INSTRUCTIONS_CONTEXT_SYSTEM_PROMPT,
     FINAL_RESULT_GENERATION_SYSTEM_PROMPT,
     SEARCH_RELEVANT_PACKAGE_SYSTEM_PROMPT,
     URL_VERIFIER_SYSTEM_PROMPT,
 )
 
-product_setup_external_agent = create_agent(
+setup_instructions_external_info_agent = create_agent(
     model=pro_llm,
     tools=[web_search_tool],
-    name="product_setup_external_agent",
-    system_prompt=PRODUCT_SETUP_EXTERNAL_SYSTEM_PROMPT,
+    name="setup_instructions_external_info_agent",
+    system_prompt=SETUP_INSTRUCTIONS_EXTERNAL_INFO_SYSTEM_PROMPT,
     debug=DEBUG
 )
 

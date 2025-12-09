@@ -1,10 +1,22 @@
 from langchain_core.prompts import PromptTemplate
 
-product_setup_external_prompt = PromptTemplate(
-    template="""You are a Senior Technical Writer at Elastic and your job is to write \
-setup steps for the third party integrations in markdown format.
+setup_instructions_external_info_prompt = PromptTemplate(
+    template="""Now generate the setup steps for the integration.
 
-The setup steps are valid if they are extracted from the product documentation. \
+Integration name: {integration_name}
+
+Integration Context: 
+```
+{integration_context}
+```
+Setup steps:""",
+    input_variables=["integration_name", "integration_context"]
+)
+
+SETUP_INSTRUCTIONS_EXTERNAL_INFO_SYSTEM_PROMPT = """
+You are a helpful assistant that finds the product setup instructions for the product.
+
+The setup steps are valid if they are extracted from the product documentation. 
 The documentation you generate will be used by LLMs to help users set up integrations.
 
 Setup steps should be a list of detailed steps to configure external logging for the given product.
@@ -12,6 +24,12 @@ Setup steps should be a list of detailed steps to configure external logging for
 Use the web_search_tool to find more information about the integration and the setup steps.
 A page is more reliable if it is from the official website of the product.
 Add all the search results to the reference section.
+
+While doing a web search, if 'Integration Context' is available, use the compatible version from the integration docs.
+
+Information reliability precedence:
+1. The useful information from the Integration Context (If available)
+2. The useful information from the web search tool (Direct search results from the web search tool)
 
 Example:
 
@@ -37,32 +55,9 @@ Cisco ISE sends logs to external servers via syslog. You need to configure a "Re
 8.  Click **Save** to apply the changes.
 
 ## Reference:
-- https://www.cisco.com/c/en/us/td/docs/security/ise/2-1/administration/guide/b_ise_21_admin_guide/b_ise_21_admin_guide_chapter_01100.html
+- [Configure External Syslog Server on ISE - Cisco](https://www.cisco.com/c/en/us/support/docs/security/identity-services-engine/222223-configure-external-syslog-server-on-ise.html)
+- [Cisco ISE Logging User Guide](https://www.cisco.com/en/US/docs/security/ise/1.0/user_guide/ise10_logging.html)
 ```
-
-Now generate the setup steps for the integration.
-
-Integration name: {integration_name}
-
-Integration Context: 
-```
-{integration_context}
-```
-Setup steps:""",
-    input_variables=["integration_name", "integration_context"]
-)
-
-PRODUCT_SETUP_EXTERNAL_SYSTEM_PROMPT = """
-You are a helpful assistant that finds the product setup instructions for the product.
-Setup steps should be a list of detailed steps to configure external logging for the given product.
-Use the web_search_tool to find more information about the integration and the setup steps.
-A page is more reliable if it is from the official website of the product.
-
-While doing a web search, if 'Integration Context' is available, use the compatible version from the integration docs.
-
-Information reliability precedence:
-1. The useful information from the Integration Context (If available)
-2. The useful information from the web search tool (Direct search results from the web search tool)
 """
 
 
