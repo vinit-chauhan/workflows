@@ -3,7 +3,7 @@ import os
 from langchain_core.messages import HumanMessage
 from phoenix.otel import register
 
-from workflow import get_graph, default_state, DEBUG
+from workflow import get_graph, default_state
 
 
 # configure the Phoenix tracer
