@@ -1,9 +1,10 @@
 import os
 
 from langchain_core.messages import HumanMessage
-from workflow import get_graph, default_state,DEBUG
-
 from phoenix.otel import register
+
+from workflow import get_graph, default_state, DEBUG
+
 
 # configure the Phoenix tracer
 tracer_provider = register(
@@ -28,9 +29,6 @@ def run(product_name: str):
     graph = get_graph()
     state = default_state()
     state["messages"] = [HumanMessage(content=product_name)]
-
-    if DEBUG:
-        graph.draw_graph(graph_type="ascii")
 
     result = graph.run(state)
 
