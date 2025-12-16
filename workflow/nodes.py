@@ -11,18 +11,16 @@ from .agents import (
     setup_instructions_external_info_agent,
     search_relevant_package_agent,
     setup_instructions_context_agent,
-    url_verifier_agent,
 )
 from .prompts import (
     setup_instructions_external_info_prompt,
     search_relevant_package_prompt,
     setup_instructions_context_prompt,
     final_result_generation_prompt,
-    url_verification_prompt,
     find_relevant_package_prompt,
     FIND_RELEVANT_PACKAGE_SYSTEM_PROMPT,
 )
-from .tools import (
+from .utils import (
     extract_urls_from_markdown,
     evaluate_urls_parallel,
 )
@@ -189,27 +187,6 @@ def final_result_generation_node(state: WorkflowState) -> dict[str, Any]:
     return {"final_result": message.text.strip('`')}
 
 
-def url_verification_node(state: WorkflowState) -> dict[str, Any]:
-    """
-    Verify the URLs in the final result.
-    OLD IMPLEMENTATION - replaced by extract_urls_node + url_evaluation_node + url_removal_node
-    """
-
-    final_result = state["final_result"]
-
-    prompt = url_verification_prompt.invoke({
-        "product_name": state["integration_name"],
-        "final_result": final_result
-    }).to_string()
-
-    response = url_verifier_agent.invoke({
-        "messages": [HumanMessage(content=prompt)]
-    })
-
-    message: AIMessage = response["messages"][-1]
-    return {"final_result": message.text.strip('`').strip()}
-
-
 def extract_urls_node(state: WorkflowState) -> dict[str, Any]:
     """
     Extract all URLs from the final result programmatically.
@@ -297,6 +274,6 @@ Answer:
         cleaned_result = response.content.strip('`').strip()
 
         return {"final_result": cleaned_result}
-    except (RuntimeError, ValueError, AttributeError) as e:
+    except (RuntimeError, ValueError, AttributeError):
         # Return original result if removal fails
         return {"final_result": final_result}

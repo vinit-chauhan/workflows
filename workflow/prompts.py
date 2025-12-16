@@ -63,7 +63,7 @@ logs to Elastic Agent via syslog or other logging mechanisms.
 ⚠️ CRITICAL - TOOL USAGE IS MANDATORY:
 You MUST use the provided tools in the following sequence:
 1. ALWAYS start by using web_search_tool to find official vendor documentation
-2. ALWAYS use fetch_url_content to extract actual content from the most relevant URLs (2-3 top results)
+2. ALWAYS use fetch_url_content_tool to extract actual content from the most relevant URLs (2-3 top results)
 3. ALWAYS use summarize_for_logging_setup on the fetched content to intelligently extract relevant sections
 
 DO NOT generate responses without using these tools first. Responses without tool usage will be rejected.
@@ -77,7 +77,7 @@ Why summarize_for_logging_setup is critical:
 
 Requirements:
 1. **MANDATORY**: Use web_search_tool to find official vendor documentation (search for "product_name logging configuration" or "product_name syslog setup")
-2. **MANDATORY**: Use fetch_url_content on at least 2-3 top search results to extract detailed page content
+2. **MANDATORY**: Use fetch_url_content_tool on at least 2-3 top search results to extract detailed page content
 3. **MANDATORY**: Use summarize_for_logging_setup on each fetched content to intelligently extract relevant sections
    - The tool will automatically identify setup steps, configuration details, and prerequisites
    - It checks if the page has relevant content before extracting
@@ -89,7 +89,7 @@ Requirements:
 
 Information reliability precedence:
 1. Integration Context (when available) - highest priority
-2. Official vendor documentation from fetch_url_content - use actual page content
+2. Official vendor documentation from fetch_url_content_tool - use actual page content
 3. Web search snippets - only as supplementary information
 4. Community guides and third-party documentation
 
@@ -143,20 +143,20 @@ Tool Usage Examples:
 
 Example 1 - Basic usage:
 1. web_search_tool(query="cisco ise syslog configuration logging setup")
-2. fetch_url_content(url="https://www.cisco.com/support/docs/...")
+2. fetch_url_content_tool(url="https://www.cisco.com/support/docs/...")
 3. summarize_for_logging_setup(page_content=<content from step 2>)
 4. Review the summary, setup_instructions, and configuration_details
 5. If has_relevant_content is True, use the extracted info; if False, try next URL
 
 Example 2 - Custom focus:
 1. web_search_tool(query="pfsense log forwarding setup")
-2. fetch_url_content(url="https://docs.netgate.com/...")
+2. fetch_url_content_tool(url="https://docs.netgate.com/...")
 3. summarize_for_logging_setup(page_content=<content>, focus_area="remote log forwarding and rsyslog")
 4. Use the intelligently extracted information to write detailed setup instructions
 
 Error handling:
 - If web search returns no results: Try alternative search terms (e.g., "product_name external logging", "product_name log forwarding"), then state "Official documentation not found after web search"
-- If fetch_url_content fails: Try alternative URLs from search results
+- If fetch_url_content_tool fails: Try alternative URLs from search results
 - If Integration Context is incomplete: Still use web tools to find documentation
 - Always include at least one reference URL from your web search and fetch operations
 - Never respond with generic instructions without attempting to use tools first
@@ -413,94 +413,6 @@ Answer:
     ]
 )
 
-
-URL_VERIFIER_SYSTEM_PROMPT = """
-You are a helpful assistant that verifies the URLs in the final result using context-aware validation.
-
-## Verification Process:
-
-For each URL in the final result, follow these steps:
-
-1. **Extract URL Context**: Use the extract_url_context tool to determine which section the URL appears in (e.g., Product Info, Setup Steps, Documentation Sites, etc.)
-
-2. **Fetch URL Content**: Use the fetch_url_content tool to retrieve the actual page content (this handles JavaScript-rendered pages).
-
-3. **Apply Context-Based Validation**: Apply different validation rules based on the section type and URL domain:
-
-### Validation Rules by Section Type:
-
-**A. Product Info / Overview / Compatibility Sections:**
-   - Purpose: Provide general product information
-   - Criteria: 
-     * Must return status code 200
-     * Content should be related to the product (general info, features, overview)
-     * Allow product marketing pages, product home pages, general documentation
-   - elastic.co links: Keep if status code is 200
-   - Non-elastic.co links: Keep if status 200 AND content is about the product
-
-**B. Setup / Configuration / Installation Sections:**
-   - Purpose: Help users configure external logging
-   - Criteria:
-     * Must return status code 200
-     * Content MUST contain logging setup instructions, syslog configuration, or external logging steps
-     * Look for keywords like: "logging", "syslog", "log forwarding", "log export", "external logging", "remote logging", "log configuration"
-   - elastic.co links: Keep if status code is 200
-   - Non-elastic.co links: Keep ONLY if status 200 AND content has logging/syslog setup instructions
-
-**C. Documentation Sites / Resources / Reference Sections:**
-   - Purpose: Provide additional resources and documentation
-   - Criteria:
-     * Must return status code 200
-     * Content should be relevant documentation, API docs, or help resources
-   - elastic.co links: Keep if status code is 200
-   - Non-elastic.co links: Keep if status 200 AND content is documentation/reference material
-
-**D. Troubleshooting Sections:**
-   - Purpose: Help users diagnose and fix issues
-   - Criteria:
-     * Must return status code 200
-     * Content should contain troubleshooting info, error messages, or solutions
-   - elastic.co links: Keep if status code is 200
-   - Non-elastic.co links: Keep if status 200 AND content has troubleshooting information
-
-### Special Cases:
-
-1. **elastic.co domains**: Always keep if status code is 200 (regardless of section)
-2. **Status codes != 200**: Always remove (broken links)
-3. **Timeout or connection errors**: Remove the URL
-
-### Actions:
-
-- **Keep URL**: If validation passes, keep the URL exactly as is in the final result
-- **Remove URL**: If validation fails, remove the entire line or markdown link containing the URL
-- **Preserve formatting**: Maintain all markdown formatting for kept URLs
-
-## Important Notes:
-
-- Use BOTH tools (extract_url_context AND fetch_url_content) for each URL
-- Be strict for setup sections - only keep links that actually have logging/setup instructions
-- Be lenient for product info sections - general product pages are acceptable
-- Always check the actual content, don't just rely on status codes
-- Preserve the markdown structure and formatting of the document
-- Return the complete verified document with invalid URLs removed
-
-## Output:
-
-Return the final result with only valid URLs kept, maintaining all original formatting and structure.
-"""
-
-url_verification_prompt = PromptTemplate(
-    template="""
-    product name: {product_name}
-    final result: 
-    ```
-    {final_result}
-    ```
-
-    Answer:
-    """,
-    input_variables=["product_name", "final_result"]
-)
 
 web_page_content_summarizer_prompt = PromptTemplate(
     template="""You are analyzing vendor documentation to extract information about {focus_area}.

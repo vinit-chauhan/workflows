@@ -1,18 +1,17 @@
 from langchain.agents import create_agent
 
 from .constants import pro_llm, DEBUG, flash_llm
-from .tools import fetch_url_content, web_search_tool, extract_url_context, summarize_for_logging_setup
+from .tools import fetch_url_content_tool, web_search_tool, summarize_for_logging_setup
 from .prompts import (
     SETUP_INSTRUCTIONS_EXTERNAL_INFO_SYSTEM_PROMPT,
     SETUP_INSTRUCTIONS_CONTEXT_SYSTEM_PROMPT,
     FINAL_RESULT_GENERATION_SYSTEM_PROMPT,
     SEARCH_RELEVANT_PACKAGE_SYSTEM_PROMPT,
-    URL_VERIFIER_SYSTEM_PROMPT,
 )
 
 setup_instructions_external_info_agent = create_agent(
     model=pro_llm,
-    tools=[web_search_tool, fetch_url_content, summarize_for_logging_setup],
+    tools=[web_search_tool, fetch_url_content_tool, summarize_for_logging_setup],
     name="setup_instructions_external_info_agent",
     system_prompt=SETUP_INSTRUCTIONS_EXTERNAL_INFO_SYSTEM_PROMPT,
     debug=DEBUG
@@ -40,13 +39,5 @@ final_result_generation_agent = create_agent(
     tools=[web_search_tool],
     name="final_result_generation_agent",
     system_prompt=FINAL_RESULT_GENERATION_SYSTEM_PROMPT,
-    debug=DEBUG
-)
-
-url_verifier_agent = create_agent(
-    model=flash_llm,
-    tools=[fetch_url_content, extract_url_context],
-    name="url_verifier_agent",
-    system_prompt=URL_VERIFIER_SYSTEM_PROMPT,
     debug=DEBUG
 )
