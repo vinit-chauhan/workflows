@@ -60,17 +60,38 @@ Your task:
 Generate comprehensive, step-by-step instructions for configuring the product to send 
 logs to Elastic Agent via syslog or other logging mechanisms.
 
+⚠️ CRITICAL - TOOL USAGE IS MANDATORY:
+You MUST use the provided tools in the following sequence:
+1. ALWAYS start by using web_search_tool to find official vendor documentation
+2. ALWAYS use fetch_url_content to extract actual content from the most relevant URLs (2-3 top results)
+3. ALWAYS use summarize_for_logging_setup on the fetched content to intelligently extract relevant sections
+
+DO NOT generate responses without using these tools first. Responses without tool usage will be rejected.
+
+Why summarize_for_logging_setup is critical:
+- Vendor documentation pages can be 50k+ characters with lots of unrelated content
+- This AI-powered tool intelligently understands context and extracts ONLY relevant information
+- It identifies setup steps, configuration parameters, and prerequisites automatically
+- Works with any documentation style - no hardcoded keywords
+- Returns structured output: summary, setup_instructions, configuration_details, relevance check
+
 Requirements:
-1. Use web_search_tool to find official documentation
-2. If 'Integration Context' is available, use the compatible version mentioned
-3. Include specific UI navigation paths (e.g., "Navigate to Settings > Logging")
-4. Provide exact configuration parameters (ports, protocols, facilities)
-5. Add all search results to the Reference section
+1. **MANDATORY**: Use web_search_tool to find official vendor documentation (search for "product_name logging configuration" or "product_name syslog setup")
+2. **MANDATORY**: Use fetch_url_content on at least 2-3 top search results to extract detailed page content
+3. **MANDATORY**: Use summarize_for_logging_setup on each fetched content to intelligently extract relevant sections
+   - The tool will automatically identify setup steps, configuration details, and prerequisites
+   - It checks if the page has relevant content before extracting
+   - You can optionally specify a custom focus_area (default is "logging and syslog configuration")
+4. If 'Integration Context' is available, use the compatible version mentioned in your searches
+5. Include specific UI navigation paths (e.g., "Navigate to Settings > Logging")
+6. Provide exact configuration parameters (ports, protocols, facilities)
+7. Add all fetched URLs to the Reference section
 
 Information reliability precedence:
 1. Integration Context (when available) - highest priority
-2. Official vendor documentation from web search
-3. Community guides and third-party documentation
+2. Official vendor documentation from fetch_url_content - use actual page content
+3. Web search snippets - only as supplementary information
+4. Community guides and third-party documentation
 
 Output format:
 - ## Setup Steps (detailed numbered list with specific values)
@@ -118,10 +139,27 @@ Cisco ISE sends logs to external servers via syslog. You need to configure a "Re
 ```
 Why bad: Vague, no specific paths, no configuration details, generic reference.
 
+Tool Usage Examples:
+
+Example 1 - Basic usage:
+1. web_search_tool(query="cisco ise syslog configuration logging setup")
+2. fetch_url_content(url="https://www.cisco.com/support/docs/...")
+3. summarize_for_logging_setup(page_content=<content from step 2>)
+4. Review the summary, setup_instructions, and configuration_details
+5. If has_relevant_content is True, use the extracted info; if False, try next URL
+
+Example 2 - Custom focus:
+1. web_search_tool(query="pfsense log forwarding setup")
+2. fetch_url_content(url="https://docs.netgate.com/...")
+3. summarize_for_logging_setup(page_content=<content>, focus_area="remote log forwarding and rsyslog")
+4. Use the intelligently extracted information to write detailed setup instructions
+
 Error handling:
-- If web search returns no results: State "Official documentation not found" and provide general syslog configuration guidance
-- If Integration Context is incomplete: Use standard logging configuration patterns
-- Always include at least one reference URL if found
+- If web search returns no results: Try alternative search terms (e.g., "product_name external logging", "product_name log forwarding"), then state "Official documentation not found after web search"
+- If fetch_url_content fails: Try alternative URLs from search results
+- If Integration Context is incomplete: Still use web tools to find documentation
+- Always include at least one reference URL from your web search and fetch operations
+- Never respond with generic instructions without attempting to use tools first
 """
 
 
@@ -462,4 +500,38 @@ url_verification_prompt = PromptTemplate(
     Answer:
     """,
     input_variables=["product_name", "final_result"]
+)
+
+web_page_content_summarizer_prompt = PromptTemplate(
+    template="""You are analyzing vendor documentation to extract information about {focus_area}.
+
+    Documentation content:
+    ```
+    {content_to_analyze}
+    ```
+
+    Your task:
+    1. Identify if this page contains relevant information about {focus_area}
+    2. If YES, extract and summarize:
+    - Setup steps or instructions
+    - Configuration parameters(ports, protocols, settings)
+    - Prerequisites or requirements
+    - Important notes or warnings
+    3. If NO, state "No relevant content found"
+
+    Format your response as:
+
+    RELEVANT: [Yes/No]
+
+    SUMMARY:
+    [2-4 sentence summary of what this page covers related to {focus_area}]
+
+    SETUP_INSTRUCTIONS:
+    [Step-by-step instructions if found, or "None found"]
+
+    CONFIGURATION_DETAILS:
+    [Key parameters, settings, or configuration info, or "None found"]
+
+    Keep it concise and actionable. Focus only on {focus_area}.""",
+    input_variables=["content_to_analyze", "focus_area"]
 )

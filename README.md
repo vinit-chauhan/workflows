@@ -195,6 +195,7 @@ The workflow uses LangGraph with the following nodes and AI agents:
   
 - **`url_verifier_agent`** (Flash): Validates URLs with context-aware rules
   - Tools: `fetch_url_content`, `extract_url_context`
+  - Note: `extract_url_context` is specifically for URL verification workflow only
 
 ### Tools
 

@@ -1,7 +1,7 @@
 from langchain.agents import create_agent
 
 from .constants import pro_llm, DEBUG, flash_llm
-from .tools import fetch_url_content, web_search_tool, extract_url_context
+from .tools import fetch_url_content, web_search_tool, extract_url_context, summarize_for_logging_setup
 from .prompts import (
     SETUP_INSTRUCTIONS_EXTERNAL_INFO_SYSTEM_PROMPT,
     SETUP_INSTRUCTIONS_CONTEXT_SYSTEM_PROMPT,
@@ -12,7 +12,7 @@ from .prompts import (
 
 setup_instructions_external_info_agent = create_agent(
     model=pro_llm,
-    tools=[web_search_tool],
+    tools=[web_search_tool, fetch_url_content, summarize_for_logging_setup],
     name="setup_instructions_external_info_agent",
     system_prompt=SETUP_INSTRUCTIONS_EXTERNAL_INFO_SYSTEM_PROMPT,
     debug=DEBUG
