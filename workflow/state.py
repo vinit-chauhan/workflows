@@ -1,3 +1,4 @@
+from operator import add
 from typing import Annotated, TypedDict
 
 from langgraph.graph.message import AnyMessage, add_messages
@@ -21,6 +22,9 @@ class WorkflowState(TypedDict):
                                           "The setup instructions for the product"]
 
     final_result: Annotated[str, "The final result for the product"]
+    
+    urls_to_verify: Annotated[list[str], "List of URLs extracted from final result", add]
+    urls_to_remove: Annotated[list[str], "List of URLs that should be removed", add]
 
 
 def default_state() -> 'WorkflowState':
@@ -35,4 +39,6 @@ def default_state() -> 'WorkflowState':
         "integration_context": "",
         "product_setup_instructions": "",
         "final_result": "",
+        "urls_to_verify": [],
+        "urls_to_remove": [],
     }

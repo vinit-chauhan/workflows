@@ -22,6 +22,10 @@ from .prompts import (
     find_relevant_package_prompt,
     FIND_RELEVANT_PACKAGE_SYSTEM_PROMPT,
 )
+from .tools import (
+    extract_urls_from_markdown,
+    evaluate_urls_parallel,
+)
 
 
 def find_relevant_packages_node(state: WorkflowState) -> dict[str, Any]:
@@ -47,7 +51,7 @@ def find_relevant_packages_node(state: WorkflowState) -> dict[str, Any]:
         {"role": "system", "content": FIND_RELEVANT_PACKAGE_SYSTEM_PROMPT},
         {"role": "user", "content": prompt}
     ]
-    
+
     response = flash_llm.invoke(messages)
     answer = response.content.strip()
 
@@ -188,6 +192,7 @@ def final_result_generation_node(state: WorkflowState) -> dict[str, Any]:
 def url_verification_node(state: WorkflowState) -> dict[str, Any]:
     """
     Verify the URLs in the final result.
+    OLD IMPLEMENTATION - replaced by extract_urls_node + url_evaluation_node + url_removal_node
     """
 
     final_result = state["final_result"]
@@ -203,3 +208,95 @@ def url_verification_node(state: WorkflowState) -> dict[str, Any]:
 
     message: AIMessage = response["messages"][-1]
     return {"final_result": message.text.strip('`').strip()}
+
+
+def extract_urls_node(state: WorkflowState) -> dict[str, Any]:
+    """
+    Extract all URLs from the final result programmatically.
+    Step 1 of parallel URL verification.
+    """
+    final_result = state["final_result"]
+
+    # Extract all URLs from markdown
+    urls = extract_urls_from_markdown(final_result)
+
+    return {"urls_to_verify": urls}
+
+
+def url_evaluation_node(state: WorkflowState) -> dict[str, Any]:
+    """
+    Evaluate all URLs in parallel to determine which should be removed.
+    Step 2 of parallel URL verification.
+    Uses LangChain's batch() for parallel execution.
+    """
+    urls = state["urls_to_verify"]
+    final_result = state["final_result"]
+    integration_name = state["integration_name"]
+
+    if not urls:
+        return {"urls_to_remove": []}
+
+    # Run parallel evaluation using LangChain's batch
+    try:
+        evaluation_results = evaluate_urls_parallel(
+            urls=urls,
+            markdown_content=final_result,
+            integration_name=integration_name,
+            llm=flash_llm,
+            max_concurrent=5  # Limit concurrent browser instances
+        )
+    except (RuntimeError, OSError, ValueError) as e:
+        print(f"[URL Verification] Error during parallel evaluation: {e}")
+        return {"urls_to_remove": []}
+
+    # Collect URLs that should be removed
+    urls_to_remove = []
+
+    for result in evaluation_results:
+        url = result['url']
+        should_remove = result['should_remove']
+
+        if should_remove:
+            urls_to_remove.append(url)
+
+    return {"urls_to_remove": urls_to_remove}
+
+
+def url_removal_node(state: WorkflowState) -> dict[str, Any]:
+    """
+    Remove marked URLs from the final result using LLM.
+    Step 3 of parallel URL verification.
+    """
+    urls_to_remove = state["urls_to_remove"]
+    final_result = state["final_result"]
+
+    if not urls_to_remove:
+        return {"final_result": final_result}
+
+    # Create a prompt for the LLM to remove URLs
+    removal_prompt = f"""
+Remove the following URLs from the markdown document. Remove the entire line or markdown link containing each URL.
+Preserve all other content and formatting exactly as it is.
+
+URLs to remove:
+{chr(10).join(f"- {url}" for url in urls_to_remove)}
+
+Document:
+```
+{final_result}
+```
+
+Return the cleaned document with the specified URLs removed. Maintain all markdown formatting.
+
+Answer:
+"""
+
+    try:
+        response = flash_llm.invoke(
+            [{"role": "user", "content": removal_prompt}])
+        cleaned_result = response.content.strip('`').strip()
+
+        return {"final_result": cleaned_result}
+    except (RuntimeError, ValueError, AttributeError) as e:
+        # Return original result if removal fails
+        return {"final_result": final_result}

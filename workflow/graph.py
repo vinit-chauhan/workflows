@@ -11,7 +11,9 @@ from .nodes import (
     setup_instructions_context_node,
     setup_instructions_external_info_node,
     final_result_generation_node,
-    url_verification_node,
+    extract_urls_node,
+    url_evaluation_node,
+    url_removal_node,
 
     is_existing_integration,
 )
@@ -38,7 +40,11 @@ class WorkflowGraph:
                        setup_instructions_context_node)
         graph.add_node("search_relevant_package", search_relevant_package_node)
         graph.add_node("final_result_generation", final_result_generation_node)
-        graph.add_node("url_verification", url_verification_node)
+
+        # New parallel URL verification nodes
+        graph.add_node("extract_urls", extract_urls_node)
+        graph.add_node("url_evaluation", url_evaluation_node)
+        graph.add_node("url_removal", url_removal_node)
 
         # Adding edges between nodes
         graph.add_edge(START, "find_relevant_packages")
@@ -53,8 +59,12 @@ class WorkflowGraph:
                        "setup_instructions_external_info")
         graph.add_edge("setup_instructions_external_info",
                        "final_result_generation")
-        graph.add_edge("final_result_generation", "url_verification")
-        graph.add_edge("url_verification", END)
+
+        # Wire the new parallel URL verification pipeline
+        graph.add_edge("final_result_generation", "extract_urls")
+        graph.add_edge("extract_urls", "url_evaluation")
+        graph.add_edge("url_evaluation", "url_removal")
+        graph.add_edge("url_removal", END)
 
         self.compiled_graph = graph.compile()
 
