@@ -49,11 +49,11 @@ Create a `.env` file in the project root:
 
 ```env
 # Google Gemini API Configuration (Required)
-GEMINI_API_KEY=your_api_key_here
+GOOGLE_API_KEY=<YOUR_GOOGLE_API_KEY>
 
 # Model Configuration (Optional - defaults shown)
-GEMINI_PRO_MODEL=gemini-2.5-pro
-GEMINI_FLASH_MODEL=gemini-2.5-flash
+GOOGLE_PRO_MODEL=gemini-2.5-pro
+GOOGLE_FLASH_MODEL=gemini-2.5-flash
 
 # Integration Root Path (Required)
 INTEGRATION_ROOT_PATH=/path/to/integrations
@@ -96,51 +96,51 @@ uv run python main.py --product "Project Discovery Cloud"
 
 ### Workflow Nodes
 
-| Node | Description |
-|------|-------------|
-| `find_relevant_packages` | Matches user input to existing integration packages |
-| `get_package_info` | Loads integration manifest and documentation |
-| `search_relevant_package` | (Experimental) Searches for new integrations not in local packages |
-| `setup_instructions_context` | Extracts structured information from integration docs |
-| `setup_instructions_external_info` | Searches web for vendor setup instructions |
-| `final_result_generation` | Generates comprehensive documentation |
-| `extract_urls` | Extracts all URLs from generated documentation |
-| `url_evaluation` | Evaluates URLs in parallel for validity and relevance |
-| `url_removal` | Removes invalid URLs from final documentation |
+| Node                               | Description                                                        |
+| ---------------------------------- | ------------------------------------------------------------------ |
+| `find_relevant_packages`           | Matches user input to existing integration packages                |
+| `get_package_info`                 | Loads integration manifest and documentation                       |
+| `search_relevant_package`          | (Experimental) Searches for new integrations not in local packages |
+| `setup_instructions_context`       | Extracts structured information from integration docs              |
+| `setup_instructions_external_info` | Searches web for vendor setup instructions                         |
+| `final_result_generation`          | Generates comprehensive documentation                              |
+| `extract_urls`                     | Extracts all URLs from generated documentation                     |
+| `url_evaluation`                   | Evaluates URLs in parallel for validity and relevance              |
+| `url_removal`                      | Removes invalid URLs from final documentation                      |
 
 ### AI Agents
 
-| Agent | Model | Tools | Purpose |
-|-------|-------|-------|---------|
-| `setup_instructions_external_info_agent` | Pro | `web_search_tool`, `fetch_url_content_tool`, `summarize_for_logging_setup` | Researches vendor logging setup instructions |
-| `setup_instructions_context_agent` | Pro | `web_search_tool` | Extracts structured info from integration docs |
-| `search_relevant_package_agent` | Flash | `web_search_tool` | Identifies package names for new integrations |
-| `final_result_generation_agent` | Flash | `web_search_tool` | Generates complete documentation |
+| Agent                                    | Model | Tools                                                                      | Purpose                                        |
+| ---------------------------------------- | ----- | -------------------------------------------------------------------------- | ---------------------------------------------- |
+| `setup_instructions_external_info_agent` | Pro   | `web_search_tool`, `fetch_url_content_tool`, `summarize_for_logging_setup` | Researches vendor logging setup instructions   |
+| `setup_instructions_context_agent`       | Pro   | `web_search_tool`                                                          | Extracts structured info from integration docs |
+| `search_relevant_package_agent`          | Flash | `web_search_tool`                                                          | Identifies package names for new integrations  |
+| `final_result_generation_agent`          | Flash | `web_search_tool`                                                          | Generates complete documentation               |
 
 ### Tools
 
-| Tool | Description |
-|------|-------------|
-| `web_search_tool` | DuckDuckGo search for finding documentation |
-| `fetch_url_content_tool` | Playwright-based URL fetcher handling JavaScript-rendered pages |
+| Tool                          | Description                                                                        |
+| ----------------------------- | ---------------------------------------------------------------------------------- |
+| `web_search_tool`             | DuckDuckGo search for finding documentation                                        |
+| `fetch_url_content_tool`      | Playwright-based URL fetcher handling JavaScript-rendered pages                    |
 | `summarize_for_logging_setup` | AI-powered intelligent summarizer for extracting relevant content from vendor docs |
 
 ### Utility Functions
 
 Located in `workflow/utils.py`:
 
-| Function | Description |
-|----------|-------------|
-| `fetch_url_content` | Core implementation for fetching URL content with Playwright |
-| `extract_urls_from_markdown` | Extracts all URLs from markdown content |
-| `evaluate_single_url` | Evaluates a single URL for validity and relevance |
-| `evaluate_urls_parallel` | Parallel URL evaluation using LangChain's batch execution |
+| Function                     | Description                                                  |
+| ---------------------------- | ------------------------------------------------------------ |
+| `fetch_url_content`          | Core implementation for fetching URL content with Playwright |
+| `extract_urls_from_markdown` | Extracts all URLs from markdown content                      |
+| `evaluate_single_url`        | Evaluates a single URL for validity and relevance            |
+| `evaluate_urls_parallel`     | Parallel URL evaluation using LangChain's batch execution    |
 
 ### Workflow Graph
 
 ```mermaid
 graph TD;
-    __start__([__start__]):::first
+    __start__([<p>__start__</p>]):::first
     find_relevant_packages(find_relevant_packages)
     get_package_info(get_package_info)
     setup_instructions_external_info(setup_instructions_external_info)
@@ -150,20 +150,19 @@ graph TD;
     extract_urls(extract_urls)
     url_evaluation(url_evaluation)
     url_removal(url_removal)
-    __end__([__end__]):::last
-    
-    __start__ --> find_relevant_packages
-    find_relevant_packages -. yes .-> get_package_info
-    find_relevant_packages -. no .-> search_relevant_package
-    get_package_info --> setup_instructions_context
-    search_relevant_package --> setup_instructions_external_info
-    setup_instructions_context --> setup_instructions_external_info
-    setup_instructions_external_info --> final_result_generation
-    final_result_generation --> extract_urls
-    extract_urls --> url_evaluation
-    url_evaluation --> url_removal
-    url_removal --> __end__
-    
+    __end__([<p>__end__</p>]):::last
+    __start__ --> find_relevant_packages;
+    extract_urls --> url_evaluation;
+    final_result_generation --> extract_urls;
+    find_relevant_packages -. &nbsp;yes&nbsp; .-> get_package_info;
+    find_relevant_packages -. &nbsp;no&nbsp; .-> search_relevant_package;
+    get_package_info --> setup_instructions_context;
+    search_relevant_package --> setup_instructions_external_info;
+    setup_instructions_context --> setup_instructions_external_info;
+    setup_instructions_external_info --> final_result_generation;
+    url_evaluation --> url_removal;
+    url_removal --> __end__;
+    classDef default fill:#f2f0ff,line-height:1.2
     classDef first fill-opacity:0
     classDef last fill:#bfb6fc
 ```
@@ -187,12 +186,12 @@ Removes URLs marked for removal while preserving document formatting.
 
 ### Validation Rules
 
-| Section Type | Criteria |
-|--------------|----------|
-| **Product Info** | General product information pages acceptable |
-| **Setup** | Must contain logging/syslog setup instructions (strict) |
-| **Documentation** | Must be relevant documentation or reference material |
-| **Troubleshooting** | Must contain troubleshooting information |
+| Section Type        | Criteria                                                |
+| ------------------- | ------------------------------------------------------- |
+| **Product Info**    | General product information pages acceptable            |
+| **Setup**           | Must contain logging/syslog setup instructions (strict) |
+| **Documentation**   | Must be relevant documentation or reference material    |
+| **Troubleshooting** | Must contain troubleshooting information                |
 
 **Special Rules:**
 - `elastic.co` domains: Always kept if status 200
@@ -257,9 +256,9 @@ DEBUG=true uv run python main.py --product cisco_ise
 
 ### Model Configuration
 
-| Model | Default | Used For |
-|-------|---------|----------|
-| Gemini Pro | `gemini-2.5-pro` | Complex tasks (context extraction, external research) |
+| Model        | Default            | Used For                                                |
+| ------------ | ------------------ | ------------------------------------------------------- |
+| Gemini Pro   | `gemini-2.5-pro`   | Complex tasks (context extraction, external research)   |
 | Gemini Flash | `gemini-2.5-flash` | Fast tasks (package matching, documentation generation) |
 
 ## Troubleshooting
