@@ -3,6 +3,7 @@ from typing import Any, Literal
 
 import yaml
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.output_parsers import StrOutputParser
 
 from .state import WorkflowState
 from .constants import flash_llm, INTEGRATION_ROOT_PATH
@@ -50,8 +51,8 @@ def find_relevant_packages_node(state: WorkflowState) -> dict[str, Any]:
         {"role": "user", "content": prompt}
     ]
 
-    response = flash_llm.invoke(messages)
-    answer = response.content.strip()
+    response = (flash_llm | StrOutputParser()).invoke(messages)
+    answer = response.strip()
 
     # If the answer is in the packages, return the integration name
     # Otherwise, return an empty string
